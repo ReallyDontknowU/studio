@@ -3,10 +3,10 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, Ban, AlertCircle } from 'lucide-react'; // Added AlertCircle
+import { Camera, RefreshCw, Ban, AlertCircle, Loader2 } from 'lucide-react'; // Added Loader2
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from './ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Added AlertTitle
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface BarcodeScannerProps {
   onScanSuccess: (imageDataUri: string) => void;
@@ -25,66 +25,129 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const [isStarting, setIsStarting] = useState(false); // State for initial camera start
+  const [isActive, setIsActive] = useState(false); // State for camera actually running and streaming
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false); // Used for camera starting phase
-  const [isStreamReady, setIsStreamReady] = useState(false); // Tracks if video stream dimensions are known
   const { toast } = useToast();
 
   const stopCamera = useCallback(() => {
+    console.log("Attempting to stop camera stream...");
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Track stopped: ${track.label}`);
+      });
       setStream(null);
-      setIsScanning(false);
-      setIsStreamReady(false); // Reset stream ready state
-      if (videoRef.current) {
-         videoRef.current.srcObject = null;
-         // Optional: Reset video display properties if needed
-         // videoRef.current.style.display = 'none';
-      }
-      console.log("Camera stopped.");
     }
-  }, [stream]);
+    // Ensure video srcObject is cleared even if stream was already null
+    if (videoRef.current && videoRef.current.srcObject) {
+       try {
+            const currentStream = videoRef.current.srcObject as MediaStream;
+            currentStream?.getTracks().forEach(track => track.stop());
+       } catch (e) {
+            console.warn("Error stopping tracks from video element:", e);
+       }
+      videoRef.current.srcObject = null;
+      console.log("Video srcObject cleared.");
+    }
+    setIsActive(false);
+    setIsStarting(false); // Reset starting state as well
+    console.log("Camera stopped state updated.");
+  }, [stream]); // Include stream in dependencies
+
+  // Cleanup effect: Stop camera when component unmounts or dependencies change causing stop
+  useEffect(() => {
+    return () => {
+      console.log("BarcodeScanner cleanup effect: Stopping camera.");
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  const handleCanPlay = () => {
+    console.log("Video can play event triggered.");
+    if (videoRef.current) {
+        videoRef.current.play().then(() => {
+            console.log("Video playback started successfully via canplay.");
+            setIsActive(true); // Camera is now fully active
+            setIsStarting(false); // Finished starting
+        }).catch(playErr => {
+            console.error("Video play failed on canplay:", playErr);
+            setError(`Could not start video playback. Error: ${playErr.name}`);
+            toast({ title: "Playback Error", description: `Could not play video stream. Please check browser settings.`, variant: "destructive" });
+            setIsStarting(false);
+            stopCamera();
+        });
+    }
+  };
+
+  // Effect to attach stream and add 'canplay' listener
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (videoElement && stream) {
+        if (videoElement.srcObject !== stream) {
+            console.log("Attaching new stream to video element.");
+            videoElement.srcObject = stream;
+            // Add listener only when stream is newly attached
+            videoElement.addEventListener('canplay', handleCanPlay);
+            videoElement.load(); // Explicitly load after setting srcObject
+        }
+    }
+
+    // Cleanup listener when stream changes or component unmounts
+    return () => {
+        if (videoElement) {
+            videoElement.removeEventListener('canplay', handleCanPlay);
+        }
+    };
+  }, [stream]); // Re-run when stream changes
+
 
   const startCamera = useCallback(async () => {
+    console.log("startCamera called.");
+    // Prevent starting if already starting or active
+    if (isStarting || isActive) {
+        console.log("Camera start aborted: Already starting or active.");
+        return;
+    }
+
     setError(null);
-    setIsLoading(true);
-    setIsStreamReady(false); // Reset ready state on new attempt
+    setIsStarting(true); // Indicate loading/starting process
+    setIsActive(false); // Ensure not marked active until stream plays
+
+    // Stop any existing stream first (important for retries)
+    stopCamera();
+
     try {
       console.log("Requesting camera access...");
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Camera access (getUserMedia) is not supported by this browser.');
       }
 
-      // Use more generic video constraints first, fallback can be added if needed
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: true, // Request any video input
+        video: { facingMode: "environment" }, // Prefer rear camera if available
         audio: false,
       });
 
-      console.log("Camera stream obtained:", mediaStream);
-      setStream(mediaStream);
+      console.log("Camera stream obtained:", mediaStream.id);
+      setStream(mediaStream); // This triggers the useEffect to attach the stream
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        // Don't set isScanning=true until video is playing
-      } else {
-          throw new Error("Video element reference is not available.");
-      }
+      // Note: setIsActive(true) and setIsStarting(false) are now handled by handleCanPlay
 
     } catch (err: any) {
       console.error('Error accessing or starting camera:', err);
       let message = 'Could not access the camera. Please ensure permissions are granted and no other app is using it.';
-      if (err.name === 'NotAllowedError') {
-        message = 'Camera permission denied. Please grant permission in your browser settings.';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        message = 'Camera permission denied. Please grant permission in your browser settings and refresh.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         message = 'No suitable camera found. Ensure a camera is connected and enabled.';
-      } else if (err.name === 'NotReadableError') {
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
          message = 'Camera might be already in use by another application or browser tab.';
+      } else if (err.name === 'OverconstrainedError') {
+          message = `Camera does not support requested settings (e.g., facingMode). Error: ${err.message}`;
       } else if (err.name === 'AbortError') {
          message = 'Camera access request was aborted.';
-      } else if (err.message.includes('not supported')) {
+      } else if (err.message?.includes('not supported')) {
          message = err.message;
       }
       setError(message);
@@ -94,59 +157,24 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         variant: 'destructive',
       });
       if (onScanError) {
-        onScanError(err);
+        onScanError(new Error(message)); // Pass a proper Error object
       }
-      setIsLoading(false); // Ensure loading stops on error
-      stopCamera(); // Ensure camera stops on error
+      setIsStarting(false); // Stop loading indicator on error
+      stopCamera(); // Ensure stream resources are released on error
     }
-  }, [toast, onScanError, stopCamera]);
-
-  // Handle video loadedmetadata: stream dimensions are known
-  useEffect(() => {
-    const videoElement = videoRef.current;
-    const handleMetadataLoaded = () => {
-        console.log("Video metadata loaded. Attempting to play...");
-        videoElement?.play().then(() => {
-            console.log("Video playback started successfully.");
-            setIsStreamReady(true); // Mark stream as ready (dimensions known)
-            setIsScanning(true); // Now set scanning to true
-            setIsLoading(false); // Stop loading indicator
-        }).catch(playErr => {
-            console.error("Video play failed:", playErr);
-            setError("Could not start video playback. Ensure autoplay is allowed.");
-            setIsLoading(false);
-            stopCamera();
-        });
-    };
-
-    if (videoElement && stream && !isStreamReady) {
-        videoElement.addEventListener('loadedmetadata', handleMetadataLoaded);
-        return () => {
-            videoElement.removeEventListener('loadedmetadata', handleMetadataLoaded);
-        };
-    }
-  }, [stream, isStreamReady, stopCamera]); // Depend on stream and ready state
-
+  }, [toast, onScanError, stopCamera, isActive, isStarting]); // Dependencies
 
   const captureImage = useCallback(() => {
-    if (videoRef.current && canvasRef.current && isScanning && isStreamReady) {
+    if (videoRef.current && canvasRef.current && isActive) {
        console.log("Capturing image from video stream...");
-      // Consider adding a brief loading state specifically for capture if needed
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
 
-      if (context) {
+      if (context && video.videoWidth > 0 && video.videoHeight > 0) {
         // Set canvas dimensions to match video stream EXACTLY for accurate capture
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-
-        if (canvas.width === 0 || canvas.height === 0) {
-             console.error("Video dimensions are zero, cannot capture.");
-             setError("Failed to capture: Video dimensions are invalid.");
-             toast({ title: 'Capture Error', description: 'Could not capture image due to invalid video dimensions.', variant: 'destructive'});
-             return; // Prevent further processing
-        }
 
         // Draw the current video frame onto the canvas
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -155,34 +183,31 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         try {
             const imageDataUri = canvas.toDataURL('image/png'); // Or 'image/jpeg'
             console.log("Image captured successfully.");
+            stopCamera(); // Stop camera after successful capture
             onScanSuccess(imageDataUri);
         } catch (e: any) {
              console.error("Error converting canvas to data URL:", e);
-             setError(`Failed to capture image: ${e.message}`);
+             const captureErrorMsg = `Failed to capture image: ${e.message}`;
+             setError(captureErrorMsg);
              toast({ title: 'Capture Error', description: `Could not generate image data: ${e.message}`, variant: 'destructive'});
-        } finally {
-             stopCamera(); // Stop camera after attempt (success or fail)
+             if (onScanError) onScanError(new Error(captureErrorMsg));
+             stopCamera(); // Stop camera even on capture error
         }
-
       } else {
-          console.error("Could not get canvas 2D context.");
-          setError("Failed to capture image: Canvas context unavailable.");
-          toast({ title: 'Error', description: 'Could not get canvas context for capture.', variant: 'destructive' });
-          stopCamera();
+          const contextError = !context ? "Canvas context unavailable." : "";
+          const dimError = video.videoWidth === 0 ? "Video width is zero." : "";
+          const captureErrorMsg = `Failed to capture image: ${contextError} ${dimError}`.trim();
+          console.error(captureErrorMsg);
+          setError(captureErrorMsg);
+          toast({ title: 'Capture Error', description: 'Could not capture image due to invalid video state.', variant: 'destructive'});
+          if (onScanError) onScanError(new Error(captureErrorMsg));
+          stopCamera(); // Stop camera if capture fails
       }
     } else {
-        console.warn("Capture attempt failed: Scanner not ready.", { isScanning, isStreamReady, video: !!videoRef.current, canvas: !!canvasRef.current });
-        if (!isStreamReady) setError("Cannot capture: Video stream not fully ready.");
+        console.warn("Capture attempt failed: Scanner not active or refs missing.", { isActive, video: !!videoRef.current, canvas: !!canvasRef.current });
+        if (!isActive) setError("Cannot capture: Camera is not active.");
     }
-  }, [isScanning, isStreamReady, onScanSuccess, stopCamera, toast]);
-
-   // Cleanup effect to stop camera when component unmounts
-   useEffect(() => {
-    return () => {
-      console.log("BarcodeScanner unmounting. Stopping camera.");
-      stopCamera();
-    };
-   }, [stopCamera]);
+  }, [isActive, onScanSuccess, stopCamera, toast, onScanError]);
 
    // Effect to handle general video errors during playback
    useEffect(() => {
@@ -191,9 +216,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       console.error('Video playback error event:', e);
       const videoError = videoElement?.error;
       setError(`Video playback error: ${videoError?.message || 'Unknown error'}. Code: ${videoError?.code}`);
-      stopCamera();
-      setIsLoading(false); // Ensure loading indicator stops
-      setIsScanning(false); // Ensure scanning state is false
+      setIsStarting(false); // Ensure loading indicator stops
+      setIsActive(false); // Ensure scanning state is false
+      stopCamera(); // Stop camera on playback error
     };
 
     if (videoElement) {
@@ -210,61 +235,58 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
   return (
     <div className="flex flex-col items-center gap-4 w-full max-w-sm">
-      {!isScanning && !isLoading && !error && ( // Show button only if not scanning, loading, or in error state initially
-        <Button onClick={startCamera} disabled={disabled} className="transition-subtle">
-          <Camera className="mr-2 h-4 w-4" /> {buttonText}
-        </Button>
-      )}
-
-       {isLoading && ( // Show loading skeleton while camera starts
-           <div className="w-full border rounded-lg overflow-hidden shadow-md bg-muted p-2">
-                <Skeleton className="w-full aspect-video" />
-                <p className="text-center text-sm text-muted-foreground mt-2">Starting camera...</p>
+      {/* Always render video and canvas, control visibility */}
+       <div className={`w-full border rounded-lg overflow-hidden shadow-md bg-muted ${isActive || isStarting ? 'block' : 'hidden'}`}>
+           {isStarting && !isActive && (
+               <div className="w-full aspect-video flex flex-col items-center justify-center bg-black text-white">
+                 <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                 <p className="text-sm text-muted-foreground">Starting camera...</p>
+               </div>
+           )}
+           <div className={`relative w-full aspect-video ${isStarting && !isActive ? 'hidden' : 'block'}`}> {/* Hide video area itself while skeleton shows */}
+              <video
+                  ref={videoRef}
+                  className="w-full h-full object-contain block bg-black" // Ensure it's block and covers area
+                  playsInline // Important for mobile browsers
+                  muted // Mute audio to enable autoplay and avoid feedback
+                  // autoPlay // Autoplay is handled by handleCanPlay now
+                  aria-label="Camera feed for barcode scanning"
+              />
+              {isActive && ( // Show overlay only when camera is actively streaming
+                   <div className="absolute inset-0 border-4 border-accent rounded pointer-events-none opacity-70 animate-pulse" aria-hidden="true"></div>
+              )}
            </div>
-       )}
-
-
-      {isScanning && ( // Show video feed and controls only when scanning is active
-        <div className="w-full border rounded-lg overflow-hidden shadow-md bg-black p-2"> {/* Use black background for video */}
-          <div className="relative aspect-video w-full">
-             {/* Video element should always be in the DOM for the ref to work */}
-             <video
-                ref={videoRef}
-                className={`w-full h-full object-contain rounded ${!isStreamReady ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300 block bg-black`} // Ensure it's a block element and covers area
-                playsInline // Important for mobile browsers
-                muted // Mute audio to enable autoplay and avoid feedback
-                autoPlay // Try to autoplay
-                aria-label="Camera feed for barcode scanning"
-             />
-             {isStreamReady && ( // Show overlay only when stream is ready
-                 <div className="absolute inset-0 border-4 border-accent rounded pointer-events-none opacity-70 animate-pulse" aria-hidden="true"></div>
-             )}
-              {!isStreamReady && stream && ( // Show a specific loading message if stream exists but not ready
-                   <div className="absolute inset-0 flex items-center justify-center text-white text-sm bg-black bg-opacity-50">
-                      Preparing video...
+           {(isActive || isStarting) && ( // Show controls only when trying to start or active
+               <>
+                   <p className="text-center text-sm text-muted-foreground mt-2 px-2">{isActive ? scanPrompt : "Waiting for camera..."}</p>
+                   <div className="flex justify-center gap-2 mt-2 mb-2">
+                       <Button onClick={captureImage} disabled={!isActive || disabled || isStarting} variant="default" size="sm" className="transition-subtle">
+                           <Camera className="mr-1 h-4 w-4" /> Capture
+                       </Button>
+                       <Button onClick={stopCamera} variant="outline" size="sm" className="transition-subtle">
+                           <Ban className="mr-1 h-4 w-4" /> Cancel
+                       </Button>
                    </div>
-               )}
-          </div>
-          <p className="text-center text-sm text-muted-foreground mt-2">{scanPrompt}</p>
-          <div className="flex justify-center gap-2 mt-2">
-            <Button onClick={captureImage} disabled={!isStreamReady || disabled} variant="default" size="sm" className="transition-subtle">
-              <Camera className="mr-1 h-4 w-4" /> Capture
-            </Button>
-            <Button onClick={stopCamera} variant="outline" size="sm" className="transition-subtle">
-              <Ban className="mr-1 h-4 w-4" /> Cancel
-            </Button>
-          </div>
-        </div>
+               </>
+           )}
+      </div>
+
+      {/* Button to start scanning - shown only if not active and not currently starting */}
+      {!isActive && !isStarting && (
+          <Button onClick={startCamera} disabled={disabled || isStarting} className="transition-subtle">
+              <Camera className="mr-2 h-4 w-4" /> {buttonText}
+          </Button>
       )}
+
 
        {/* Error display area */}
-        {error && !isLoading && ( // Show error only if not loading
+        {error && !isStarting && ( // Show error only if not loading/starting
             <Alert variant="destructive" className="w-full mt-2">
              <AlertCircle className="h-4 w-4" />
              <AlertTitle>Camera Error</AlertTitle>
              <AlertDescription>{error}</AlertDescription>
-              {/* Provide a retry button only if not currently scanning */}
-             {!isScanning && (
+              {/* Provide a retry button */}
+             {!isActive && !isStarting && ( // Show retry only if not active/starting
                  <Button onClick={startCamera} variant="ghost" size="sm" className="mt-2 text-xs">
                     <RefreshCw className="mr-1 h-3 w-3" /> Try Again
                  </Button>
@@ -279,3 +301,4 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 };
 
 export default BarcodeScanner;
+
