@@ -8,7 +8,7 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, LogIn, LogOut, AlertCircle, UserCheck, UserX } from 'lucide-react'; // Updated Icon import
+import { Loader2, LogIn, LogOut, AlertCircle, UserCheck, UserX } from 'lucide-react';
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -26,7 +26,8 @@ const getLastLogForStudent = (studentId: string): EntryLog | null => {
   // Case-insensitive comparison for studentId when filtering
   const studentLogs = logs
       .filter(log => log.studentId.toLowerCase() === studentId.toLowerCase())
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      .map(log => ({ ...log, timestamp: new Date(log.timestamp) })) // Ensure Date objects
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   return studentLogs.length > 0 ? studentLogs[0] : null;
 };
 
@@ -43,64 +44,57 @@ export default function AdminScanPage() {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
-  const [lastScanResult, setLastScanResult] = useState<{ student: Partial<Student>; log: Partial<EntryLog> & { type: EntryType | 'Error' } } | null>(null); // Adjusted type for error display
-  const [isScannerActive, setIsScannerActive] = useState(true); // Keep scanner active by default
+  const [lastScanResult, setLastScanResult] = useState<{ student: Partial<Student>; log: Partial<EntryLog> & { type: EntryType | 'Error' } } | null>(null);
+  const [isScannerActive, setIsScannerActive] = useState(false); // Start inactive, user clicks button
 
-  const handleScanSuccess = async (imageDataUri: string) => {
+  const processDetectedBarcode = useCallback(async (imageDataUri: string) => {
     if (isProcessing) return; // Prevent concurrent processing
 
     setIsProcessing(true);
     setProcessingError(null);
     setLastScanResult(null); // Clear previous result display
+    setIsScannerActive(false); // Scanner likely stopped itself, but ensure state reflects this
 
     try {
-        console.log("Admin Scan: Processing image...");
-        // 1. Extract ID from barcode image
+        console.log("Admin Scan: Processing detected barcode image...");
+        // 1. Extract ID from barcode image (passed from scanner)
         const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
         console.log("Admin Scan: Extraction result:", extractionResult);
 
         if (!extractionResult || !extractionResult.idNumber) {
-            throw new Error("Could not extract ID number from the barcode.");
+            throw new Error("Could not extract ID number from the barcode image.");
         }
 
-        const studentId = extractionResult.idNumber.trim(); // Trim whitespace
+        const studentId = extractionResult.idNumber.trim().toLowerCase(); // Normalize ID
         console.log(`Admin Scan: Extracted ID: ${studentId}`);
-
 
         // 2. Find Student in the database/storage
         const student = getStudentById(studentId);
         console.log(`Admin Scan: Student lookup result for ID ${studentId}:`, student);
         if (!student) {
-            throw new Error(`Student with ID ${studentId} not found in the system. Please register the student first.`);
+            throw new Error(`Student with ID ${studentId.toUpperCase()} not found. Please register first.`);
         }
 
         // 3. Determine Entry or Exit
         const lastLog = getLastLogForStudent(studentId);
-        let currentAction: EntryType = 'Entry'; // Default to Entry
+        let currentAction: EntryType = 'Entry';
         const now = new Date();
 
         if (lastLog) {
-            const timeDiffSeconds = (now.getTime() - new Date(lastLog.timestamp).getTime()) / 1000;
+            const timeDiffSeconds = (now.getTime() - lastLog.timestamp.getTime()) / 1000;
             console.log(`Admin Scan: Last log for ${studentId}:`, lastLog, `Time difference: ${timeDiffSeconds}s`);
 
-
             if (timeDiffSeconds < MIN_LIBRARY_INTERVAL_SECONDS) {
-                throw new Error(`Please wait at least ${MIN_LIBRARY_INTERVAL_SECONDS} seconds before scanning ${student.name} again.`);
+                throw new Error(`Please wait ${MIN_LIBRARY_INTERVAL_SECONDS}s before scanning ${student.name} again.`);
             }
-
-            if (lastLog.type === 'Entry') {
-                currentAction = 'Exit';
-            } else {
-                currentAction = 'Entry';
-            }
+            currentAction = lastLog.type === 'Entry' ? 'Exit' : 'Entry';
         } else {
             console.log(`Admin Scan: No previous log found for ${studentId}. Defaulting to Entry.`);
         }
 
-
         // 4. Create new Log Entry
         const newLog: EntryLog = {
-            id: `log_${Date.now()}_${studentId}`, // Simple unique ID for demo
+            id: `log_${Date.now()}_${studentId}`,
             studentId: student.id,
             studentName: student.name,
             branch: student.branch,
@@ -109,52 +103,70 @@ export default function AdminScanPage() {
         };
         console.log("Admin Scan: Creating new log entry:", newLog);
 
-
         // 5. Save the Log Entry
         saveEntryLog(newLog);
         console.log("Admin Scan: Log entry saved.");
 
-
         // 6. Display Success feedback
-         setLastScanResult({ student, log: newLog });
-         toast({
+        setLastScanResult({ student, log: newLog });
+        toast({
             title: `${currentAction} Recorded`,
             description: `${student.name} (${student.id}) recorded as ${currentAction.toLowerCase()} at ${format(now, 'Pp')}.`,
-            variant: currentAction === 'Entry' ? 'default' : 'default', // Keep default style for both
-            // Use custom icons within description or title if needed, or a generic success icon
+            variant: 'default',
          });
          console.log(`Admin Scan: Success - ${student.name} recorded as ${currentAction}.`);
 
-
     } catch (error: any) {
-      console.error('Admin Scan: Error processing scan:', error);
-      const errorMessage = error.message || 'An unknown error occurred during processing.';
-      setProcessingError(errorMessage);
-      toast({
-        title: 'Processing Error',
-        description: errorMessage,
-        variant: 'destructive',
-      });
-       // Display error specific info
-       let errorStudentId = "Unknown";
-       const match = errorMessage.match(/ID (.*?) not found/);
-       if (match) {
-            errorStudentId = match[1];
-       }
-       setLastScanResult({
+        console.error('Admin Scan: Error processing scan:', error);
+        const errorMessage = error.message || 'An unknown error occurred.';
+        setProcessingError(errorMessage);
+        toast({
+            title: 'Processing Error',
+            description: errorMessage,
+            variant: 'destructive',
+        });
+
+        // Display error specific info
+        let errorStudentId = "Unknown";
+        const match = errorMessage.match(/ID (.*?) not found/i); // Case-insensitive match
+        if (match && match[1]) {
+            errorStudentId = match[1].toUpperCase();
+        } else {
+            // Try extracting from the image if possible (e.g., if ID extraction failed)
+            // This part is tricky without knowing the exact imageDataUri format/content
+             // For now, keep it simple
+        }
+
+        setLastScanResult({
             student: { id: errorStudentId, name:"Unknown Student" },
             log: { type: 'Error', timestamp: new Date() }
-       });
+        });
 
     } finally {
-      setIsProcessing(false);
-       // Keep scanner active unless explicitly stopped or error requires manual intervention
-       // setIsScannerActive(false); // Only pause if desired after each scan
+        setIsProcessing(false);
+        // Do not automatically restart scanner here. User might want to see the result/error.
+        // setIsScannerActive(true);
     }
-  };
+  }, [isProcessing, toast]); // Dependencies
 
-  // Function to manually reactivate scanner if needed (e.g., if paused)
-  const reactivateScanner = () => {
+
+  const handleScanError = useCallback((error: Error) => {
+    console.error("Admin Scan: Scanner component error:", error);
+    // Display scanner-specific errors if needed, or rely on processDetectedBarcode catch block
+    const errMsg = `Scanner Error: ${error.message}. Check camera permissions and ensure it's not in use.`;
+    setProcessingError(errMsg);
+    toast({
+        title: 'Scanner Hardware Error',
+        description: errMsg,
+        variant: 'destructive',
+      });
+    setIsScannerActive(false); // Stop the scanner display on hardware/permission error
+    setIsProcessing(false); // Ensure processing state is false
+  }, [toast]);
+
+
+  // Function to manually activate scanner
+  const startScannerSession = () => {
       setIsScannerActive(true);
       setProcessingError(null); // Clear error when explicitly restarting
       setLastScanResult(null); // Clear last result
@@ -170,25 +182,18 @@ export default function AdminScanPage() {
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-6">
 
+             {/* Conditionally render Scanner or Start Button */}
              {isScannerActive ? (
                  <BarcodeScanner
-                    onScanSuccess={handleScanSuccess}
-                    onScanError={(err) => {
-                        console.error("Admin Scan: Scanner component error:", err);
-                        // Display scanner-specific errors if needed, or rely on handleScanSuccess catch block
-                        setProcessingError(`Scanner Error: ${err.message}. Please ensure camera access is granted.`);
-                        // Optionally stop the scanner on component error
-                        // setIsScannerActive(false);
-                    }}
-                    buttonText="Start Scanning" // Text shown before camera starts
-                    scanPrompt="Scan Student Barcode"
-                    disabled={isProcessing} // Disable capture button while processing
+                    onScanSuccess={processDetectedBarcode} // Use the processing callback
+                    onScanError={handleScanError}
+                    scanPrompt="Scanning for barcode..."
+                    disabled={isProcessing} // Disable interaction while processing previous scan
                  />
              ) : (
-                  // Button to restart scanner if it was paused/stopped
-                  <Button onClick={reactivateScanner} className="transition-subtle">
-                      Start Scanning Session
-                  </Button>
+                 <Button onClick={startScannerSession} className="transition-subtle" disabled={isProcessing}>
+                     {isProcessing ? 'Processing...' : 'Start Scanning Session'}
+                 </Button>
              )}
 
 
@@ -206,7 +211,7 @@ export default function AdminScanPage() {
                        ? 'border-destructive bg-destructive/10'
                        : lastScanResult.log.type === 'Entry'
                          ? 'border-green-500 bg-green-500/10'
-                         : 'border-red-500 bg-red-500/10' // Assuming Exit uses red border
+                         : 'border-red-500 bg-red-500/10'
                     }`}>
                      <CardHeader>
                          <CardTitle className="flex items-center gap-2 text-lg">
@@ -219,36 +224,34 @@ export default function AdminScanPage() {
                               )}
                          </CardTitle>
                          <CardDescription>
-                            {lastScanResult.log.timestamp ? `Scan Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : processingError}
+                            {lastScanResult.log.timestamp ? `Scan Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : processingError || "Details unavailable"}
                          </CardDescription>
                      </CardHeader>
                     {lastScanResult.log.type !== 'Error' && lastScanResult.student && ( // Only show details on success
                          <CardContent className="text-sm space-y-1">
                              <p><strong>Student:</strong> {lastScanResult.student.name || 'N/A'}</p>
-                             <p><strong>ID:</strong> {lastScanResult.student.id || 'N/A'}</p>
+                             <p><strong>ID:</strong> {lastScanResult.student.id?.toUpperCase() || 'N/A'}</p>
                              <p><strong>Branch:</strong> {lastScanResult.student.branch || 'N/A'}</p>
                          </CardContent>
                      )}
                      {lastScanResult.log.type === 'Error' && (
                          <CardContent className="text-sm space-y-1">
                               <p><strong>Attempted ID:</strong> {lastScanResult.student?.id || 'Unknown'}</p>
-                              <p className="text-destructive">{processingError || "An unknown error occurred."}</p>
+                              <p className="text-destructive font-medium">{processingError || "An unknown error occurred."}</p>
                          </CardContent>
                      )}
                  </Card>
              )}
-             {/* Separate display for processing errors if not attached to lastScanResult */}
+
+             {/* Separate display for processing/scanner errors if not attached to lastScanResult */}
               {processingError && !lastScanResult && !isProcessing && (
                  <Alert variant="destructive" className="w-full max-w-md mt-4">
                      <AlertCircle className="h-4 w-4" />
-                     <AlertTitle>Processing Error</AlertTitle>
+                     <AlertTitle>Error During Scan</AlertTitle>
                      <AlertDescription>{processingError}</AlertDescription>
-                     {/* Optionally add a button to clear error and retry? */}
-                      {!isScannerActive && <Button onClick={reactivateScanner} size="sm" variant="outline" className="mt-2">Try Again</Button>}
+                     {!isScannerActive && <Button onClick={startScannerSession} size="sm" variant="outline" className="mt-2">Try Again</Button>}
                  </Alert>
               )}
-
-
           </CardContent>
        </Card>
     </div>
