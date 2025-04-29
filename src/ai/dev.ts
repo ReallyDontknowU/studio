@@ -1,1 +1,2 @@
-// Flows will be imported for their side effects in this file.
+import '@/ai/flows/extract-barcode-data.ts';
+import '@/ai/flows/admin-extract-barcode-data.ts';
