@@ -111,7 +111,8 @@ export default function StudentRegisterPage() {
       }
 
       // Use extracted ID if form ID is empty (e.g., if field was disabled after successful scan)
-      const finalStudentId = formData.id || extractedData?.idNumber;
+      // Also trim whitespace and convert to lowercase for consistent comparison
+      const finalStudentId = (formData.id || extractedData?.idNumber)?.trim().toLowerCase();
       if (!finalStudentId) {
          toast({ title: "Missing ID", description: "Could not determine Student ID.", variant: "destructive"});
          setIsSubmitting(false);
@@ -125,28 +126,24 @@ export default function StudentRegisterPage() {
 
       const newStudent: Student = {
         ...formData,
-        id: finalStudentId, // Ensure the final ID is used
+        id: finalStudentId, // Ensure the final, normalized ID is used
         barcodeImageUri: barcodeImageUri || undefined, // Store URI if available
         createdAt: new Date(),
       };
 
        // Persist student data (e.g., localStorage for demo, or API call)
-       const students = JSON.parse(localStorage.getItem('students') || '[]');
-       // Check if ID already exists
-       if (students.some((s: Student) => s.id === newStudent.id)) {
-           toast({ title: "Registration Failed", description: `Student ID ${newStudent.id} is already registered.`, variant: "destructive" });
+       const students: Student[] = JSON.parse(localStorage.getItem('students') || '[]');
+       // Check if ID already exists (case-insensitive)
+       if (students.some((s: Student) => s.id.toLowerCase() === newStudent.id)) {
+           toast({ title: "Registration Failed", description: `Student ID ${newStudent.id.toUpperCase()} is already registered. Please log in instead.`, variant: "destructive" });
            setIsSubmitting(false);
            return;
        }
 
        students.push(newStudent);
        localStorage.setItem('students', JSON.stringify(students));
-       // Also update the dummy list for login simulation
-       const loginIds = JSON.parse(localStorage.getItem('registeredStudentIds') || '[]');
-       if (!loginIds.includes(newStudent.id)) {
-            loginIds.push(newStudent.id);
-            localStorage.setItem('registeredStudentIds', JSON.stringify(loginIds));
-       }
+
+       // No need to update a separate registeredStudentIds list
 
 
       toast({
@@ -280,8 +277,7 @@ export default function StudentRegisterPage() {
                         onSubmit={handleFormSubmit}
                         // Pre-fill ID if extracted, otherwise allow manual input
                         defaultValues={{ id: extractedData?.idNumber || '' }}
-                        // Disable ID field only if successfully extracted? Or always editable? Let's keep editable.
-                        // Tweak StudentForm if needed to handle disabled state based on prop
+                        // Keep ID field editable for manual entry or correction
                         isLoading={isSubmitting}
                         submitButtonText="Register"
                         formTitle="" // Title already handled above
