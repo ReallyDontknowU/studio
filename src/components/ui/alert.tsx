@@ -1,5 +1,7 @@
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import { AlertCircle } from "lucide-react" // Added AlertCircle for destructive variant
 
 import { cn } from "@/lib/utils"
 
@@ -22,13 +24,19 @@ const alertVariants = cva(
 const Alert = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>
->(({ className, variant, ...props }, ref) => (
+>(({ className, variant, children, ...props }, ref) => (
   <div
     ref={ref}
     role="alert"
     className={cn(alertVariants({ variant }), className)}
     {...props}
-  />
+  >
+     {/* Automatically add AlertCircle icon for destructive variant if no other icon is provided */}
+     {variant === "destructive" && !React.Children.toArray(children).some(child => React.isValidElement(child) && typeof child.type !== 'string' && (child.type as any).displayName?.includes('Icon')) && (
+        <AlertCircle className="h-4 w-4" /> // Use AlertCircle for destructive alerts
+     )}
+    {children}
+  </div>
 ))
 Alert.displayName = "Alert"
 
