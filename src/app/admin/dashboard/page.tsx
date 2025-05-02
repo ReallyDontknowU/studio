@@ -99,7 +99,8 @@ export default function AdminDashboardPage() {
              <CardTitle>Manage Students</CardTitle>
              <CardDescription>View, add, edit, or delete student records.</CardDescription>
            </CardHeader>
-           <CardContent className="flex flex-col sm:flex-row gap-2"> {/* Use flex for buttons */}
+           {/* Added mt-4 here for spacing */}
+           <CardContent className="mt-4 flex flex-col sm:flex-row gap-2"> {/* Use flex for buttons */}
               <Link href="/admin/add-student" passHref className="flex-1">
                  <Button className="w-full transition-subtle">
                     <UserPlus className="mr-2" /> Add Student
