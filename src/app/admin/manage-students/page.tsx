@@ -97,7 +97,7 @@ export default function AdminManageStudentsPage() {
     return students.filter(student =>
       student.name.toLowerCase().includes(lowerCaseSearchTerm) ||
       student.id.toLowerCase().includes(lowerCaseSearchTerm) ||
-      student.rollNo.toLowerCase().includes(lowerCaseSearchTerm) ||
+      (student.rollNo && student.rollNo.toLowerCase().includes(lowerCaseSearchTerm)) || // Check if rollNo exists
       student.branch.toLowerCase().includes(lowerCaseSearchTerm)
     );
   }, [students, searchTerm]);
@@ -156,14 +156,27 @@ export default function AdminManageStudentsPage() {
         ...studentToEdit, // Keep original createdAt etc.
         ...formData, // Apply form data changes
         // Update image URI only if a new one was captured/uploaded during edit
-        idCardImageUri: editModeCapturedImageUri || studentToEdit.idCardImageUri,
+        // AND if the ID has NOT changed. If ID changed, the URI should be updated regardless.
+        // OR if the ID changed AND a new image was captured.
+        idCardImageUri: (formData.id !== studentToEdit.id && editModeCapturedImageUri) // ID changed AND new image exists
+                       ? editModeCapturedImageUri // Use new image for new ID
+                       : (editModeCapturedImageUri && editModeCapturedImageUri !== studentToEdit.idCardImageUri) // New image captured/uploaded for same ID
+                         ? editModeCapturedImageUri // Use the new image
+                         : (formData.id === studentToEdit.id) // ID did not change
+                           ? studentToEdit.idCardImageUri // Keep original image if ID is same and no new image
+                           : undefined, // ID changed but no new image was uploaded, so clear it (or handle differently?)
      };
+
+    // Rename image logic (placeholder - adjust based on actual storage)
+    // If the ID changed and an image exists, we conceptually "rename" the image association.
+    // In localStorage, this just means saving the new student data with the potentially old URI under the new ID.
+    // For file storage, you'd rename the file or update a database record.
 
 
     // TODO: Replace with API call
     const updatedStudents = students.map(student =>
-      student.id === studentToEdit.id
-        ? updatedStudentData
+      student.id === studentToEdit.id // Find the original student by the original ID
+        ? updatedStudentData // Replace with the potentially ID-changed data
         : student
     );
     saveStudents(updatedStudents);
@@ -203,15 +216,8 @@ export default function AdminManageStudentsPage() {
          // For now, just update the image and let the user manually adjust fields if needed.
 
           // Update the form's default values IF the corresponding field in the form is currently empty or matches the OLD student data
-          const currentFormValues = (document.getElementById(`student-form-${studentToEdit.id}`) as HTMLFormElement)?.elements; // Access form elements if possible (may need ref or context)
-          // Or, more reliably, use react-hook-form's API if passed down or via context
-          // Example (conceptual - needs integration with StudentForm's form instance):
-          // const form = useFormContext(); // If using FormProvider in dialog
-          // const currentName = form.getValues('name');
-          // if (!currentName || currentName === studentToEdit.name) {
-          //    form.setValue('name', result.studentName || studentToEdit.name || '', { shouldValidate: true });
-          // }
-          // Repeat for other fields (id, rollNo, branch, yearOfStudy)
+          // This requires accessing the form instance, which needs to be managed carefully (e.g., using refs or context)
+          // For simplicity, we won't auto-update form fields here, just the image. The user must verify.
 
          toast({
            title: "Image Processed",
@@ -275,22 +281,20 @@ export default function AdminManageStudentsPage() {
           <CardDescription>View, search, edit, or delete student records.</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Search Input */}
-          <div className="flex gap-4 mb-6 items-center">
-            <div className="relative flex-grow">
+          {/* Search Input and Add Button */}
+          <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center">
+             <div className="relative flex-grow w-full sm:w-auto">
                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                <Input
                   placeholder="Search by Name, ID, Roll No, Branch..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10" // Add padding for the icon
+                  className="pl-10 w-full" // Add padding for the icon
                />
             </div>
-            {/* Add New Student Button - removed from dashboard, keep here? Or keep in dashboard? */}
-            {/* Decision: Keep consistent nav, remove button here, rely on dashboard */}
-             {/* <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle">
+            <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle w-full sm:w-auto">
                 Add New Student
-            </Button> */}
+            </Button>
           </div>
 
           {/* Student Table */}
@@ -324,7 +328,7 @@ export default function AdminManageStudentsPage() {
                       <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
                       <TableCell className="whitespace-nowrap">{student.name}</TableCell>
                       <TableCell>{student.branch}</TableCell>
-                      <TableCell>{student.rollNo}</TableCell>
+                      <TableCell>{student.rollNo || '-'}</TableCell> {/* Display dash if no roll no */}
                       <TableCell>{student.yearOfStudy}</TableCell>
                       <TableCell className="text-right space-x-1 whitespace-nowrap"> {/* Reduced space */}
                         <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
@@ -368,98 +372,114 @@ export default function AdminManageStudentsPage() {
 
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[600px] grid grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90vh] p-0">
-                    <DialogHeader className="p-6 pb-4 border-b">
+                <DialogContent className="sm:max-w-[600px] p-0"> {/* Use flex column layout, remove internal padding */}
+                    <DialogHeader> {/* Header stays, padding handled by component */}
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details. You can also update the ID card image.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <ScrollArea className="overflow-y-auto px-6 pt-4">
-                        {studentToEdit && (
-                             <>
-                                {/* Image Section */}
-                                <div className="mb-6 p-2 border rounded-md bg-muted max-w-sm mx-auto">
-                                    <p className="text-sm font-medium text-center mb-2">ID Card Image:</p>
-                                    {isEditModeScanning ? (
-                                        // Show Scanner when scanning
-                                        <div className="flex flex-col items-center">
-                                            <BarcodeScanner
-                                                onScanSuccess={handleEditScanSuccess}
-                                                onScanError={(err) => {
-                                                    setEditModeExtractionError(`Scanner error: ${err.message}`);
-                                                    setIsEditModeScanning(false);
-                                                }}
-                                                onManualStop={handleEditManualStop}
-                                                scanPrompt="Position ID card..."
-                                                disabled={isEditModeExtracting}
-                                                autoStartScanLoop={false} // Require manual stop/capture in edit? Or keep auto? Let's try false
-                                            />
-                                            {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
-                                        </div>
-                                    ) : (
-                                         // Show Image or Placeholder
-                                        <div className="flex flex-col items-center">
-                                            {editModeCapturedImageUri ? (
-                                                <Image
-                                                    src={editModeCapturedImageUri}
-                                                    alt="Student ID Card"
-                                                    width={250}
-                                                    height={375}
-                                                    className="rounded-md object-contain mb-2"
-                                                />
-                                            ) : (
-                                                <div className="h-[200px] w-[150px] flex items-center justify-center bg-secondary rounded-md mb-2">
-                                                    <span className="text-muted-foreground text-sm">No Image</span>
+                    {/* ScrollArea wraps the main content section */}
+                    <ScrollArea className="flex-grow overflow-y-auto">
+                       <div className="px-6 pt-4 pb-6"> {/* Add padding inside ScrollArea */}
+                           {studentToEdit && (
+                                <>
+                                   {/* Image Section */}
+                                   <div className="mb-6 p-2 border rounded-md bg-muted max-w-sm mx-auto">
+                                       <p className="text-sm font-medium text-center mb-2">ID Card Image:</p>
+                                       {isEditModeScanning ? (
+                                           // Show Scanner when scanning
+                                           <div className="flex flex-col items-center">
+                                               <BarcodeScanner
+                                                   onScanSuccess={handleEditScanSuccess}
+                                                   onScanError={(err) => {
+                                                       setEditModeExtractionError(`Scanner error: ${err.message}`);
+                                                       setIsEditModeScanning(false);
+                                                   }}
+                                                   // Remove onManualStop prop usage as it's removed from BarcodeScanner
+                                                   scanPrompt="Position ID card..."
+                                                   disabled={isEditModeExtracting}
+                                                   autoStartScanLoop={true} // Keep auto loop for consistency
+                                               />
+                                               {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
+                                           </div>
+                                       ) : (
+                                            // Show Image or Placeholder
+                                           <div className="flex flex-col items-center">
+                                               {editModeCapturedImageUri ? (
+                                                   <Image
+                                                       src={editModeCapturedImageUri}
+                                                       alt="Student ID Card"
+                                                       width={250}
+                                                       height={375}
+                                                       className="rounded-md object-contain mb-2"
+                                                   />
+                                               ) : (
+                                                   <div className="h-[200px] w-[150px] flex items-center justify-center bg-secondary rounded-md mb-2">
+                                                       <span className="text-muted-foreground text-sm">No Image</span>
+                                                   </div>
+                                               )}
+                                               {/* Buttons to Scan/Upload */}
+                                                <div className="flex gap-2 mt-2">
+                                                     <Button variant="outline" size="sm" onClick={() => setIsEditModeScanning(true)} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
+                                                          <Camera className="mr-1 h-3 w-3"/> Re-Scan
+                                                     </Button>
+                                                     <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}>
+                                                          {isEditModeUploading ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <Upload className="mr-1 h-3 w-3"/>} Upload
+                                                     </Button>
+                                                     <Input
+                                                         id="edit-file-upload"
+                                                         type="file"
+                                                         accept="image/*"
+                                                         ref={fileInputRef}
+                                                         onChange={handleEditFileUpload}
+                                                         className="hidden"
+                                                         disabled={isLoading || isEditModeScanning || isEditModeUploading || isEditModeExtracting}
+                                                     />
                                                 </div>
-                                            )}
-                                            {/* Buttons to Scan/Upload */}
-                                             <div className="flex gap-2 mt-2">
-                                                  <Button variant="outline" size="sm" onClick={() => setIsEditModeScanning(true)} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
-                                                       <Camera className="mr-1 h-3 w-3"/> Re-Scan
-                                                  </Button>
-                                                  <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}>
-                                                       {isEditModeUploading ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <Upload className="mr-1 h-3 w-3"/>} Upload
-                                                  </Button>
-                                                  <Input
-                                                      id="edit-file-upload"
-                                                      type="file"
-                                                      accept="image/*"
-                                                      ref={fileInputRef}
-                                                      onChange={handleEditFileUpload}
-                                                      className="hidden"
-                                                      disabled={isLoading || isEditModeScanning || isEditModeUploading || isEditModeExtracting}
-                                                  />
-                                             </div>
-                                              {isEditModeExtracting && <span className="text-xs text-muted-foreground mt-1">Processing image...</span>}
-                                              {editModeExtractionError && <Alert variant="destructive" className="mt-2 text-xs p-2"><AlertDescription>{editModeExtractionError}</AlertDescription></Alert>}
-                                        </div>
-                                    )}
-                                </div>
+                                                 {isEditModeExtracting && <span className="text-xs text-muted-foreground mt-1">Processing image...</span>}
+                                                 {editModeExtractionError && <Alert variant="destructive" className="mt-2 text-xs p-2"><AlertDescription>{editModeExtractionError}</AlertDescription></Alert>}
+                                           </div>
+                                       )}
+                                   </div>
 
-                                {/* Student Form */}
-                                <StudentForm
-                                    formId={`student-form-${studentToEdit.id}`} // Unique ID for the form
-                                    onSubmit={handleEditSubmit}
-                                    defaultValues={studentToEdit} // Pass the full student object
-                                    isLoading={isLoading || isEditModeExtracting || isEditModeUploading} // Disable form while loading/processing
-                                    submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // This button is now external
-                                    formTitle="" // Hide inner title/desc
-                                    formDescription=""
-                                    availableBranches={BRANCHES} // Or fetch dynamically if needed
-                                />
-                            </>
-                       )}
-                       <div className="pb-6"></div> {/* Spacer at bottom of scroll */}
+                                   {/* Student Form */}
+                                   <StudentForm
+                                       formId={`student-form-${studentToEdit.id}`} // Unique ID for the form
+                                       onSubmit={handleEditSubmit}
+                                       defaultValues={studentToEdit} // Pass the full student object
+                                       isLoading={isLoading || isEditModeExtracting || isEditModeUploading} // Disable form while loading/processing
+                                       submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // This button is now external
+                                       formTitle="" // Hide inner title/desc
+                                       formDescription=""
+                                       availableBranches={BRANCHES} // Or fetch dynamically if needed
+                                   />
+                               </>
+                          )}
+                       </div> {/* End padding container */}
                     </ScrollArea>
 
-                    <DialogFooter className="p-6 pt-4 border-t">
+                    <DialogFooter> {/* Footer stays, padding handled by component */}
                        <DialogClose asChild>
                          <Button variant="outline" disabled={isLoading}>Cancel</Button>
                        </DialogClose>
                        <Button
-                          onClick={() => document.getElementById(`student-form-${studentToEdit?.id}`)?.requestSubmit()}
+                          onClick={() => {
+                              // Trigger form submission using its ID
+                              const formElement = document.getElementById(`student-form-${studentToEdit?.id}`);
+                              if (formElement instanceof HTMLFormElement) {
+                                  // Create a temporary submit button and click it
+                                  const tempSubmit = document.createElement('button');
+                                  tempSubmit.type = 'submit';
+                                  tempSubmit.style.display = 'none';
+                                  formElement.appendChild(tempSubmit);
+                                  tempSubmit.click();
+                                  formElement.removeChild(tempSubmit);
+                              } else {
+                                  console.error("Could not find form element to submit.");
+                              }
+                          }}
                           disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} // Also disable save during image processing
                         >
                           {isLoading ? 'Saving...' : 'Save Changes'}
