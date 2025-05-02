@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -78,7 +79,22 @@ export default function AdminAddStudentPage() {
   };
 
 
-  const processImage = useCallback(async (imageDataUri: string) => {
+  const processImage = useCallback(async (imageDataUri: string | null) => { // Allow null for manual stop
+    if (!imageDataUri) {
+        console.log("Manual stop without valid frame capture.");
+        setCapturedImageUri(null); // No image to show
+        setExtractedData({}); // Trigger form display for purely manual entry
+        setExtractionError("No frame captured. Please enter details manually or try scanning again.");
+        setActiveTab('manual'); // Switch to manual tab
+        toast({
+            title: "Manual Entry Required",
+            description: "Stopped scanning without capturing a frame. Please fill the form.",
+            variant: "default", // Use default or warning variant
+        });
+        return; // Stop processing
+    }
+
+    console.log("Processing image:", imageDataUri.substring(0, 50));
     setCapturedImageUri(imageDataUri);
     setExtractedData(null);
     setExtractionError(null);
@@ -148,6 +164,12 @@ export default function AdminAddStudentPage() {
     console.log("Scan Success - received image data.");
     processImage(imageDataUri);
   };
+
+   // Handler for manual stop in scanner
+   const handleManualStop = (imageDataUri: string | null) => {
+    console.log("Manual Stop - received image data (or null):", imageDataUri ? imageDataUri.substring(0, 50) + "..." : null);
+    processImage(imageDataUri); // Process the captured frame (or null)
+   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -261,6 +283,7 @@ export default function AdminAddStudentPage() {
                             setExtractionError(`Scanner error: ${err.message}. Try uploading or manual entry.`);
                             toast({ title:"Scanner Issue", description: "Could not start or use scanner.", variant: "destructive"})
                         }}
+                        onManualStop={handleManualStop} // Pass the manual stop handler
                         scanPrompt="Position ID card inside the frame"
                         disabled={isExtracting || isSubmitting}
                     />
@@ -329,8 +352,8 @@ export default function AdminAddStudentPage() {
                     {/* Always render form in manual tab if not extracting. Handles manual entry and verification after scan/upload */}
                     {!isExtracting && (
                         <StudentForm
-                            // Use key to force re-render with new defaults when extractedData changes significantly (e.g., new scan/upload)
-                            key={capturedImageUri || 'manual'} // Key changes when image changes
+                            // Use key to force re-render with new defaults when extractedData changes significantly (e.g., new scan/upload or manual stop)
+                            key={capturedImageUri || activeTab} // Key changes when image changes or tab switched to manual
                             onSubmit={handleFormSubmit}
                             defaultValues={formDefaultValues}
                             isLoading={isSubmitting}

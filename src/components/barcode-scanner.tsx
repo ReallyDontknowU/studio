@@ -11,6 +11,7 @@ import { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatE
 interface BarcodeScannerProps {
   onScanSuccess: (imageDataUri: string) => void;
   onScanError?: (error: Error) => void;
+  onManualStop?: (imageDataUri: string | null) => void; // New prop for manual stop
   buttonText?: string;
   scanPrompt?: string;
   disabled?: boolean;
@@ -19,6 +20,7 @@ interface BarcodeScannerProps {
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   onScanSuccess,
   onScanError,
+  onManualStop, // Destructure new prop
   buttonText = 'Start Scanning',
   scanPrompt = 'Position barcode in front of the camera...',
   disabled = false,
@@ -339,11 +341,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [toast, onScanError, cleanupCamera, isStarting, isActive, runScanLoop]); // Dependencies
 
   // --- Manual Stop ---
-  // const handleStopClick = () => {
-  //   console.log("Manual stop button clicked.");
-  //   cleanupCamera("manual stop");
-  //   setError(null); // Clear error when manually stopping
-  // };
+  const handleStopClick = () => {
+    console.log("Manual stop button clicked.");
+    const lastFrame = captureFrame(); // Capture frame *before* cleanup
+    cleanupCamera("manual stop");
+    setError(null); // Clear error when manually stopping
+
+    // Call the onManualStop callback with the captured frame
+    if (onManualStop) {
+      onManualStop(lastFrame);
+    }
+  };
 
   // --- Video Element Error Handling ---
   useEffect(() => {
@@ -433,10 +441,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             </Button>
           )}
 
-           {/* Stop button (Optional - useful for debugging or manual control) */}
-           {isActive && !isStarting && (
-             <Button onClick={() => cleanupCamera("manual stop button")} variant="outline" disabled={isStarting} className="transition-subtle">
-               <Ban className="mr-2 h-4 w-4" /> Stop Camera
+           {/* Stop button (Conditional rendering based on onManualStop prop) */}
+           {isActive && !isStarting && onManualStop && ( // Only show if handler provided
+             <Button onClick={handleStopClick} variant="outline" disabled={isStarting} className="transition-subtle">
+               <Ban className="mr-2 h-4 w-4" /> Stop & Use This Frame
              </Button>
            )}
       </div>
@@ -476,4 +484,3 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 };
 
 export default BarcodeScanner;
-
