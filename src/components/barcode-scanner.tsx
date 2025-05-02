@@ -3,7 +3,7 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, Ban, AlertCircle, Loader2, ScanLine } from 'lucide-react';
+import { Camera, RefreshCw, Ban, AlertCircle, Loader2 } from 'lucide-react'; // Removed ScanLine
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException, DecodeHintType } from '@zxing/library';
@@ -136,7 +136,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageDataUri = canvas.toDataURL('image/png');
+      const imageDataUri = canvas.toDataURL('image/png'); // Use PNG for better quality than default JPEG
       console.log("CaptureFrame: Success.");
       return imageDataUri;
     } catch (e: any) {
@@ -173,15 +173,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         if (imageDataUri) {
           console.log("Frame captured, calling onScanSuccess.");
           onScanSuccess(imageDataUri);
-          // Decision: Should it automatically stop? For now, NO. Parent controls via disabled or unmount.
-          // cleanupCamera("scan success"); // <-- Removed auto-stop
-          // Re-enable scanning after a short delay? Or let parent decide?
-          // For auto-recapture:
-          // setTimeout(() => {
-          //    processingSuccessRef.current = false;
-          //    setIsScanning(true); // Re-enable scanning state
-          //    scanLoopRef.current = requestAnimationFrame(runScanLoop); // Restart loop
-          // }, 500); // e.g., 500ms delay
+           // Auto-restart scanning after a short delay
+           setTimeout(() => {
+              processingSuccessRef.current = false;
+              if (isActive) { // Check if still active before restarting scan state
+                  setIsScanning(true); // Re-enable scanning state
+                  scanLoopRef.current = requestAnimationFrame(runScanLoop); // Restart loop
+              } else {
+                  console.log("runScanLoop: Delay ended, but scanner is no longer active. Not restarting loop.")
+              }
+           }, 1500); // e.g., 1.5 seconds delay before next scan attempt
+
         } else {
           console.error("Failed to capture frame after barcode detection.");
           const captureFailError = new Error("Frame capture failed after detection.");
@@ -211,12 +213,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         // console.log("runScanLoop: Video not ready."); // Can be noisy
     }
 
-    // Continue the loop if conditions met
+    // Continue the loop if conditions met and not currently processing a success
     if (isActive && isScanning && !processingSuccessRef.current) {
       scanLoopRef.current = requestAnimationFrame(runScanLoop);
     } else {
       console.log("runScanLoop: Not requesting next frame.", { isActive, isScanning, processing: processingSuccessRef.current });
-      scanLoopRef.current = undefined; // Explicitly clear ref if loop stops
+       // Ensure the ref is cleared if the loop logic decides not to request the next frame
+       if (!processingSuccessRef.current) { // Don't clear if waiting for timeout
+          scanLoopRef.current = undefined;
+       }
     }
   }, [isActive, isScanning, captureFrame, onScanSuccess, cleanupCamera, onScanError]);
 
@@ -246,8 +251,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "environment",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          // Request a resolution closer to vertical aspect ratio if supported
+          width: { ideal: 480 },
+          height: { ideal: 640 }
+          // If the above causes issues, revert to:
+          // width: { ideal: 640 },
+          // height: { ideal: 480 }
         },
         audio: false,
       });
@@ -273,6 +282,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
        // Initialize ZXing Reader
       const hints = new Map();
+      // Specify formats if needed, e.g., Code 128 for IDs, QR codes, etc.
       // hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE]);
       readerRef.current = new BrowserMultiFormatReader(hints, 500); // Adjust timeBetweenScansMillis if needed
       console.log("startCamera: ZXing Reader initialized.");
@@ -288,8 +298,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
        // Simplify error messages for common cases
       if (err.name === 'NotAllowedError') message = 'Camera permission denied. Please allow access in browser settings.';
       else if (['NotFoundError', 'DevicesNotFoundError'].includes(err.name)) message = 'No camera found. Ensure it is connected and enabled.';
-      else if (['NotReadableError', 'TrackStartError', 'AbortError'].includes(err.name)) message = 'Camera is busy or could not start. Close other apps/tabs using the camera.';
-      else if (err.name === 'OverconstrainedError') message = `Camera doesn't support requested settings (e.g., resolution).`;
+      else if (['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError'].includes(err.name)) message = 'Camera is already in use or could not be started. Close other applications that might be using it.';
       else if (err.name === 'SecurityError') message = 'Camera access denied due to security settings (e.g., requires HTTPS).';
 
       setError(message);
@@ -341,14 +350,14 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
 
   return (
-    <div className="flex flex-col items-center gap-4 w-full max-w-sm">
-       {/* Container for Video and Loading State */}
-       <div className={`w-full border rounded-lg overflow-hidden shadow-md bg-muted relative aspect-video ${isStarting || isActive ? 'block' : 'hidden'}`}>
+    <div className="flex flex-col items-center gap-4 w-full max-w-xs"> {/* Reduced max-width for vertical */}
+       {/* Container for Video and Loading State - Vertical Aspect Ratio */}
+       <div className={`w-full border rounded-lg overflow-hidden shadow-md bg-muted relative aspect-[3/4] ${isStarting || isActive ? 'block' : 'hidden'}`}>
 
             {/* Video Feed - Always rendered for stability, hidden via parent */}
             <video
                 ref={videoRef}
-                className={`w-full h-full object-contain block bg-black ${isStarting ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+                className={`w-full h-full object-cover block bg-black ${isStarting ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`} // Use object-cover for vertical
                 playsInline
                 muted
                 aria-label="Camera feed for barcode scanning"
@@ -367,10 +376,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                <div className="absolute inset-0 pointer-events-none z-5">
                  {isScanning && (
                      <>
-                        {/* Scan Line Animation */}
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-accent to-transparent opacity-70 animate-scan-line"></div>
-                         {/* Optional: Frame border */}
-                        <div className="absolute inset-2 border-2 border-accent/50 rounded pointer-events-none"></div>
+                        {/* Scan Line Animation - Vertical */}
+                        <div className="absolute left-0 top-0 w-full h-1 bg-gradient-to-r from-transparent via-accent to-transparent opacity-70 animate-scan-line-vertical"></div>
+                         {/* Vertical Frame border */}
+                        <div className="absolute inset-x-4 inset-y-10 border-2 border-accent/50 rounded pointer-events-none"></div>
                      </>
                  )}
                  {/* Prompt Text */}
@@ -390,11 +399,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             </Button>
           )}
 
-           {isActive && !isStarting && (
+           {/* Removed the Stop Button based on the last request */}
+           {/* {isActive && !isStarting && (
              <Button onClick={handleStopClick} variant="outline" disabled={isStarting} className="transition-subtle">
                <Ban className="mr-2 h-4 w-4" /> Stop Scanning
              </Button>
-           )}
+           )} */}
       </div>
 
        {/* Error Display */}
@@ -416,13 +426,13 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
       {/* CSS for animations */}
       <style jsx global>{`
-         @keyframes scan-line {
-            0% { transform: translateY(5%); }
-            100% { transform: translateY(95%); }
+         @keyframes scan-line-vertical {
+            0% { transform: translateY(10%); } /* Start near top */
+            100% { transform: translateY(90%); } /* End near bottom */
          }
-         .animate-scan-line {
-             animation: scan-line 2.5s linear infinite alternate;
-             height: 2px;
+         .animate-scan-line-vertical {
+             animation: scan-line-vertical 2.5s linear infinite alternate;
+             height: 2px; /* Keep it as a line */
              box-shadow: 0 0 5px 1px hsl(var(--accent) / 0.7);
          }
        `}</style>

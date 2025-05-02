@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -6,7 +7,7 @@ import Image from 'next/image';
 import { useToast } from '@/hooks/use-toast';
 import type { Student, ExtractedIdData, YearOfStudy, Branch } from '@/lib/types';
 import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants';
-import { adminExtractBarcodeData } from '@/ai/flows/admin-extract-barcode-data'; // Corrected import path based on error, assuming it's correct now.
+import { adminExtractBarcodeData } from '@/ai/flows/admin-extract-barcode-data';
 
 // UI Components
 import BarcodeScanner from '@/components/barcode-scanner';
@@ -17,9 +18,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { X } from 'lucide-react'; // Import X icon
 
 // Icons
-import { Loader2, Upload, Info, Camera } from 'lucide-react'; // Removed ScanLine, ImageIcon
+import { Loader2, Upload, Info, Camera } from 'lucide-react';
 
 // Helper to map string year to enum type
 const mapYearOfStudy = (yearStr?: string): YearOfStudy | undefined => {
@@ -40,7 +42,8 @@ const mapBranch = (branchStr?: string): Branch | undefined => {
    if (!branchStr) return undefined;
    const lowerBranchStr = branchStr.trim().toLowerCase();
    const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
-   return knownBranch || branchStr.trim(); // Return known branch or the trimmed original string if not found
+   // If it's a known branch, return it, otherwise return the original trimmed string
+   return knownBranch || branchStr.trim();
 }
 
 // Main Component
@@ -55,17 +58,15 @@ export default function AdminAddStudentPage() {
   const [activeTab, setActiveTab] = useState('scan'); // 'scan', 'upload', 'manual'
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Form instance using react-hook-form could be added here if needed for manual input
-  // const form = useForm<StudentFormData>(...);
-
    // Derive default values for the form based on extracted data or manual input
-   const formDefaultValues: Partial<StudentFormData> = {
+   const formDefaultValues: Partial<StudentFormData> = React.useMemo(() => ({
       id: extractedData?.idNumber || '',
       name: extractedData?.studentName || '',
       branch: extractedData?.branch || '',
       rollNo: extractedData?.rollNo || '',
       yearOfStudy: extractedData?.yearOfStudy as YearOfStudy | undefined // Cast needed here
-   };
+   }), [extractedData]); // Recalculate only when extractedData changes
+
 
   // Reset state when switching tabs
   const handleTabChange = (value: string) => {
@@ -74,8 +75,6 @@ export default function AdminAddStudentPage() {
       setExtractedData(null);
       setExtractionError(null);
       setIsExtracting(false);
-      // Reset form if managing manually
-      // form.reset(formDefaultValues); // Reset form to defaults when tab changes
   };
 
 
@@ -91,25 +90,38 @@ export default function AdminAddStudentPage() {
         const result = await adminExtractBarcodeData({ photoDataUri: imageDataUri });
         console.log("adminExtractBarcodeData raw result:", result);
 
-        if (result && result.studentId) {
+        if (result) { // Check if result exists (even if some fields are missing)
              const mappedData: ExtractedIdData = {
-                 idNumber: result.studentId,
+                 idNumber: result.studentId || '', // Default to empty string if undefined/null
                  studentName: result.studentName,
                  branch: mapBranch(result.branch), // Use helper
                  rollNo: result.rollNo,
                  yearOfStudy: mapYearOfStudy(result.yearOfStudy) // Use helper
              };
              console.log("Mapped Extracted Data:", mappedData);
-             setExtractedData(mappedData);
-             toast({
-                title: "ID Card Processed",
-                description: `Extracted data. Please verify and complete the form.`,
-             });
+             setExtractedData(mappedData); // Update state with potentially partial data
+
+             if (result.studentId) {
+                 toast({
+                    title: "ID Card Processed",
+                    description: `Extracted data. Please verify and complete the form.`,
+                 });
+             } else {
+                 // If studentId is missing after processing, show a specific message
+                 console.log("Extraction result missing studentId, proceeding to manual entry.");
+                 setExtractionError("Could not extract student ID automatically. Please fill in the ID and verify other fields.");
+                 toast({
+                    title: "Extraction Incomplete",
+                    description: "Could not extract student ID automatically. Please fill it in manually.",
+                    variant: "destructive",
+                });
+             }
+
         } else {
-             // Even if studentId is empty, allow manual entry
-             console.log("Extraction result missing studentId, proceeding to manual entry.");
+             // Handle case where the flow itself might return null/undefined (though the flow tries to avoid this)
+             console.log("Extraction result was null/undefined.");
              setExtractedData({}); // Set empty object to trigger form display
-             setExtractionError("Could not extract student ID automatically. Please fill in the form manually.");
+             setExtractionError("Could not extract details automatically. Please fill in the form manually.");
              toast({
                 title: "Extraction Incomplete",
                 description: "Could not extract details automatically. Please fill in the form manually.",
@@ -307,7 +319,7 @@ export default function AdminAddStudentPage() {
                               src={capturedImageUri}
                               alt="Scanned or Uploaded ID Card"
                               width={300}
-                              height={180} // Adjust height for ID card aspect ratio
+                              height={450} // Adjust height for vertical ID card aspect ratio (approx 3:4.5)
                               className="rounded-md mx-auto object-contain"
                               data-ai-hint="id card"
                            />
@@ -317,8 +329,8 @@ export default function AdminAddStudentPage() {
                     {/* Always render form in manual tab if not extracting. Handles manual entry and verification after scan/upload */}
                     {!isExtracting && (
                         <StudentForm
-                            // Use key to force re-render with new defaults when extractedData changes
-                            key={JSON.stringify(extractedData)}
+                            // Use key to force re-render with new defaults when extractedData changes significantly (e.g., new scan/upload)
+                            key={capturedImageUri || 'manual'} // Key changes when image changes
                             onSubmit={handleFormSubmit}
                             defaultValues={formDefaultValues}
                             isLoading={isSubmitting}
