@@ -125,9 +125,10 @@ export default function AdminManageStudentsPage() {
                   className="pl-10" // Add padding for the icon
                />
             </div>
-             <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle">
+             {/* Removed Add New Student Button */}
+             {/* <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle">
                 Add New Student
-            </Button>
+            </Button> */}
           </div>
 
           {/* Student Table */}
@@ -196,15 +197,15 @@ export default function AdminManageStudentsPage() {
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                 {/* Adjusted DialogContent for scrolling */}
-                <DialogContent className="sm:max-w-[600px] grid-rows-[auto_minmax(0,1fr)] max-h-[90vh] p-0">
-                    <DialogHeader className="p-6 pb-0">
+                <DialogContent className="sm:max-w-[600px] grid grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90vh] p-0"> {/* Added grid-rows and auto footer */}
+                    <DialogHeader className="p-6 pb-4 border-b"> {/* Added border */}
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details below. Click save when you're done.
                         </DialogDescription>
                     </DialogHeader>
                     {/* ScrollArea wraps the form */}
-                    <ScrollArea className="overflow-y-auto px-6">
+                    <ScrollArea className="overflow-y-auto px-6 pt-4"> {/* Adjusted padding */}
                        {studentToEdit && (
                            <StudentForm
                               // Removed key prop unless absolutely necessary for specific reset behavior
@@ -215,11 +216,23 @@ export default function AdminManageStudentsPage() {
                               formTitle="" // Hide inner title/desc
                               formDescription=""
                               availableBranches={BRANCHES} // Or fetch dynamically if needed
-                              // Add padding-bottom inside the form's card/container if needed so last field isn't cut off by footer
+                              // Remove internal CardFooter, use DialogFooter instead
                            />
                        )}
+                       {/* Add some padding at the bottom inside scroll area if needed */}
+                       <div className="pb-6"></div>
                     </ScrollArea>
-                    {/* Footer can remain outside ScrollArea if handled by Dialog, but StudentForm includes it */}
+                    {/* Separate DialogFooter */}
+                    <DialogFooter className="p-6 pt-4 border-t"> {/* Added border */}
+                       {/* Optionally keep DialogClose here or rely on the X button */}
+                       <DialogClose asChild>
+                         <Button variant="outline">Cancel</Button>
+                       </DialogClose>
+                       {/* Trigger form submission from outside */}
+                       <Button onClick={() => document.getElementById(`student-form-${studentToEdit?.id || 'edit'}`)?.requestSubmit()} disabled={isLoading}>
+                          {isLoading ? 'Saving...' : 'Save Changes'}
+                       </Button>
+                    </DialogFooter>
                  </DialogContent>
              </Dialog>
 

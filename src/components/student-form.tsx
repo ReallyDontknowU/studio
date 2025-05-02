@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'; // Keep Card for structure
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'; // Keep Card for structure
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import type { Student, Branch, YearOfStudy } from '@/lib/types';
 import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants'; // Assuming constants are defined
@@ -18,10 +18,11 @@ interface StudentFormProps {
   onSubmit: (data: StudentFormData) => void;
   defaultValues?: Partial<StudentFormData>;
   isLoading?: boolean;
-  submitButtonText?: string;
+  submitButtonText?: string; // Keep prop, though button is now external for edit dialog
   formTitle?: string;
   formDescription?: string;
   availableBranches?: Branch[]; // Allow overriding default branches
+  formId?: string; // Add formId prop
 }
 
 // Define Zod schema for validation
@@ -43,7 +44,11 @@ const StudentForm: React.FC<StudentFormProps> = ({
   formTitle = 'Student Information',
   formDescription = 'Enter the student details.',
   availableBranches = BRANCHES,
+  formId // Use the formId prop
 }) => {
+  const internalFormId = React.useId(); // Generate internal ID if none provided
+  const resolvedFormId = formId || `student-form-${internalFormId}`; // Resolve the ID to use
+
   const form = useForm<StudentFormData>({
     resolver: zodResolver(studentFormSchema),
     defaultValues: {
@@ -84,9 +89,9 @@ const StudentForm: React.FC<StudentFormProps> = ({
           </CardHeader>
        )}
        <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleFormSubmit)}>
+          <form onSubmit={form.handleSubmit(handleFormSubmit)} id={resolvedFormId}> {/* Add ID here */}
              {/* Add pb-6 (or similar) to ensure space below last field for scrolling */}
-             <CardContent className="space-y-4 px-1 pb-6">
+             <CardContent className="space-y-4 px-1 pb-0"> {/* Remove bottom padding from CardContent */}
                 <FormField
                   control={form.control}
                   name="id"
@@ -177,12 +182,15 @@ const StudentForm: React.FC<StudentFormProps> = ({
                   )}
                 />
              </CardContent>
-             {/* Footer remains part of the form */}
-             <CardFooter className="px-1 pt-0">
-                <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
-                   {isLoading ? 'Saving...' : submitButtonText}
-                </Button>
-             </CardFooter>
+              {/* Footer removed - will be handled by DialogFooter in manage-students */}
+              {/* Only render the submit button if NOT used inside the edit dialog (e.g., on add student page) */}
+             {!formId && (
+                <div className="p-1 pt-4"> {/* Add padding back */}
+                    <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
+                        {isLoading ? 'Saving...' : submitButtonText}
+                    </Button>
+                </div>
+             )}
           </form>
        </Form>
     </Card>
@@ -190,3 +198,4 @@ const StudentForm: React.FC<StudentFormProps> = ({
 };
 
 export default StudentForm;
+

@@ -92,31 +92,24 @@ export default function AdminDashboardPage() {
 
       {/* Actions Section */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Card className="hover:shadow-md transition-shadow duration-200">
-          <CardHeader>
-            <CardTitle>Add New Student</CardTitle>
-            <CardDescription>Register a new student manually or via ID scan.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/admin/add-student" passHref>
-              <Button className="w-full transition-subtle">
-                <UserPlus className="mr-2" /> Add Student
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+         {/* Removed Add New Student Card */}
 
          <Card className="hover:shadow-md transition-shadow duration-200">
            <CardHeader>
              <CardTitle>Manage Students</CardTitle>
-             <CardDescription>View, search, edit, or delete student records.</CardDescription>
+             <CardDescription>View, add, edit, or delete student records.</CardDescription>
            </CardHeader>
-           <CardContent>
-             <Link href="/admin/manage-students" passHref>
-               <Button variant="outline" className="w-full transition-subtle">
-                 <Users className="mr-2" /> Manage Students
-               </Button>
-             </Link>
+           <CardContent className="flex flex-col sm:flex-row gap-2"> {/* Use flex for buttons */}
+              <Link href="/admin/add-student" passHref className="flex-1">
+                 <Button className="w-full transition-subtle">
+                    <UserPlus className="mr-2" /> Add Student
+                 </Button>
+              </Link>
+              <Link href="/admin/manage-students" passHref className="flex-1">
+                <Button variant="outline" className="w-full transition-subtle">
+                  <Users className="mr-2" /> View/Edit Students
+                </Button>
+              </Link>
            </CardContent>
          </Card>
 
@@ -179,3 +172,4 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
+
