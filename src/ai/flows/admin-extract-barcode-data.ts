@@ -20,11 +20,11 @@ const AdminExtractBarcodeDataInputSchema = z.object({
 export type AdminExtractBarcodeDataInput = z.infer<typeof AdminExtractBarcodeDataInputSchema>;
 
 const AdminExtractBarcodeDataOutputSchema = z.object({
-  studentId: z.string().describe('The student ID extracted from the barcode image or text below it.'),
-  studentName: z.string().optional().describe('The name of the student extracted from the ID card, if available.'),
-  branch: z.string().optional().describe('The branch of the student extracted from the ID card, if available.'),
-  rollNo: z.string().optional().describe('The roll number of the student extracted from the ID card, if available.'),
-  yearOfStudy: z.string().optional().describe('The year of study of the student extracted from the ID card, if available.'),
+  studentId: z.string().describe('The student ID number, typically found directly below the barcode.'),
+  studentName: z.string().optional().describe('The full name of the student as printed on the ID card, if clearly visible.'),
+  branch: z.string().optional().describe('The academic branch or department of the student, if clearly visible.'),
+  rollNo: z.string().optional().describe('The roll number of the student, if clearly visible and distinct from the student ID.'),
+  yearOfStudy: z.string().optional().describe('The academic year or class of the student (e.g., FY, SY, TY), if clearly visible.'),
 });
 export type AdminExtractBarcodeDataOutput = z.infer<typeof AdminExtractBarcodeDataOutputSchema>;
 
@@ -45,22 +45,30 @@ const adminExtractBarcodeDataPrompt = ai.definePrompt({
   },
   output: {
     schema: z.object({
-      studentId: z.string().describe('The student ID extracted from the barcode image or text below it.'),
-      studentName: z.string().optional().describe('The name of the student extracted from the ID card, if available.'),
-      branch: z.string().optional().describe('The branch of the student extracted from the ID card, if available.'),
-      rollNo: z.string().optional().describe('The roll number of the student extracted from the ID card, if available.'),
-      yearOfStudy: z.string().optional().describe('The year of study of the student extracted from the ID card, if available.'),
+       studentId: z.string().describe('The student ID number, typically found directly below the barcode.'),
+       studentName: z.string().optional().describe('The full name of the student as printed on the ID card, if clearly visible.'),
+       branch: z.string().optional().describe('The academic branch or department of the student, if clearly visible.'),
+       rollNo: z.string().optional().describe('The roll number of the student, if clearly visible and distinct from the student ID.'),
+       yearOfStudy: z.string().optional().describe('The academic year or class of the student (e.g., FY, SY, TY), if clearly visible.'),
     }),
   },
-  prompt: `You are an expert data extraction specialist.
+  prompt: `You are an expert data extraction specialist focused on student ID cards.
 
-You will be given an image of a student ID card. Your primary goal is to extract the student's ID number, which is usually found below the barcode or is the barcode's content itself. Additionally, try to extract the student's name, branch, roll number, and year of study if clearly visible on the card.
+Analyze the provided image of a student ID card. Your primary goal is to accurately extract the **Student ID number**. This number is almost always printed **directly below the barcode** and might be labeled as "ID No.", "Student ID", "Barcode No.", or just be a sequence of numbers. It is distinct from any phone numbers or other contact details potentially present on the card.
+
+Secondary goals are to extract the following information **only if clearly visible and legible**:
+- studentName: The student's full name.
+- branch: The student's academic branch/department (e.g., Computer, Mechanical).
+- rollNo: The student's roll number (often distinct from the Student ID).
+- yearOfStudy: The student's academic year (e.g., FY, SY, TY, First Year).
 
 Image: {{media url=photoDataUri}}
 
-Focus on extracting the ID number accurately. For other fields (name, branch, rollNo, yearOfStudy), extract them only if they are clearly present and legible. Do not invent information.
-
-Output the information in JSON format according to the schema. If a field other than studentId is not available or illegible, omit it or return null/undefined for that optional field. Ensure studentId is always returned, even if it's potentially incorrect based on the image; return an empty string for studentId only if absolutely nothing resembling an ID can be found.
+**Instructions:**
+1.  **Prioritize Student ID:** Find the numeric or alphanumeric code printed directly beneath the barcode. Ignore any numbers that look like phone numbers (e.g., starting with +91, having 10 digits, or containing hyphens in a phone number format).
+2.  **Accuracy over Completeness:** For \`studentName\`, \`branch\`, \`rollNo\`, and \`yearOfStudy\`, only extract the information if it is clearly printed and you are confident in its accuracy. If unsure or the field is not present, omit it or return null/undefined for that optional field. Do not guess or hallucinate information.
+3.  **Output Format:** Return the extracted information strictly in the JSON format defined by the output schema.
+4.  **Student ID Guarantee:** Always return a value for \`studentId\`. If you absolutely cannot find any number below the barcode or identify the ID, return an empty string "" for \`studentId\`. Do not return null or omit the \`studentId\` field.
 `,
 });
 
@@ -79,10 +87,19 @@ const adminExtractBarcodeDataFlow = ai.defineFlow<
         // Ensure studentId is always a string, even if prompt returns null/undefined unexpectedly
         const validatedOutput = {
             ...output,
-            studentId: output?.studentId ?? ""
+            studentId: output?.studentId ?? "" // Ensure studentId is always a string
         };
-        console.log("AdminExtract Flow Output:", validatedOutput);
-        return validatedOutput;
+        // Clean up potential nulls returned by the model for optional fields, ensuring they are undefined as per schema
+        const finalOutput: AdminExtractBarcodeDataOutput = {
+            studentId: validatedOutput.studentId,
+            studentName: validatedOutput.studentName || undefined,
+            branch: validatedOutput.branch || undefined,
+            rollNo: validatedOutput.rollNo || undefined,
+            yearOfStudy: validatedOutput.yearOfStudy || undefined,
+        };
+
+        console.log("AdminExtract Flow Output:", finalOutput);
+        return finalOutput;
     } catch (error) {
         console.error("Error in adminExtractBarcodeDataFlow:", error);
         // Return a default error structure or re-throw
@@ -97,3 +114,6 @@ const adminExtractBarcodeDataFlow = ai.defineFlow<
     }
   }
 );
+
+// Ensure the exported types match the schema definitions
+export type { AdminExtractBarcodeDataInput, AdminExtractBarcodeDataOutput };
