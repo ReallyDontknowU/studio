@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Camera, RefreshCw, Ban, AlertCircle, Loader2, ScanLine } from 'lucide-react'; // Added ScanLine
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException, DecodeHintType, BarcodeFormat, DOMException as ZXingDOMException } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 interface BarcodeScannerProps {
   onScanSuccess: (imageDataUri: string) => void;
@@ -215,10 +215,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                     // Normal case: No barcode found, continue loop below
                 } else if (err instanceof ChecksumException || err instanceof FormatException) {
                     console.warn(`${logPrefix} Minor scan error (Checksum/Format): ${err.message}. Continuing.`);
-                } else if (err instanceof ZXingDOMException && err.message?.includes('multiple barcodes')) {
-                    console.warn(`${logPrefix} Multiple barcodes detected, ignoring. ${err.message}. Continuing.`);
-                }
-                else {
+                } else {
                     console.error(`${logPrefix} Significant error during barcode decoding:`, err);
                     const errorMsg = `Scanning error: ${err instanceof Error ? err.message : String(err)}`;
                     setError(errorMsg);
@@ -327,7 +324,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               } else {
                    playErrorMessage = `Could not start video source: ${playError.message || 'Unknown playback error'}`;
               }
-              throw new Error(playErrorMessage); // Rethrow with a more informative message
+              setError(playErrorMessage);
+              toast({ title: 'Camera Start Error', description: playErrorMessage, variant: 'destructive', duration: 8000 });
+              if (onScanError) onScanError(err instanceof Error ? err : new Error(playErrorMessage));
+              cleanupCamera("startCamera error handler"); // Ensure cleanup on error
+              setIsActive(false); // Ensure state reflects inactivity
+              setIsScanning(false);
           }
 
           const hints = new Map<DecodeHintType, any>();
@@ -380,7 +382,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
            setIsStarting(false); // Finished starting attempt (success or fail)
            console.log(`${logPrefix} Finished start attempt. State:`, { isStarting, isActive, isScanning });
         }
-      }, [toast, onScanError, cleanupCamera, isActive, isStarting, autoStartScanLoop]); // Added autoStartScanLoop
+      }, [toast, onScanError, cleanupCamera, autoStartScanLoop]); // Added autoStartScanLoop
 
    // --- Event Handlers (defined early for useCallback dependencies) ---
     const handleVideoError = useCallback((event: Event) => {
