@@ -9,10 +9,11 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, LogIn, LogOut, AlertCircle, UserCheck, UserX } from 'lucide-react';
+import { Loader2, LogIn, LogOut, AlertCircle, UserCheck, UserX, ImageOff } from 'lucide-react'; // Added ImageOff
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+import Image from 'next/image'; // Import Image
 
 // Helper function to get student data (replace with actual API call)
 const getStudentById = (id: string): Student | null => {
@@ -43,20 +44,33 @@ const saveEntryLog = (log: EntryLog): void => {
 
 // Simplified image comparison (for demonstration - replace with more robust method)
 const compareImagesRoughly = (imageUri1?: string, imageUri2?: string): boolean => {
-    if (!imageUri1 || !imageUri2) return false;
+    if (!imageUri1 || !imageUri2) {
+        console.log("Rough comparison skipped: One or both URIs missing.");
+        return false; // Cannot compare if one is missing
+    }
     // Very basic comparison based on length or a small segment
     // A real implementation would involve feature extraction or perceptual hashing
-    const segment1 = imageUri1.substring(imageUri1.length - 100);
-    const segment2 = imageUri2.substring(imageUri2.length - 100);
-    console.log(`Comparing image segments: \nSegment 1 (stored): ${segment1}\nSegment 2 (scanned): ${segment2}`);
-    return segment1 === segment2;
+    const segmentLength = Math.min(100, imageUri1.length, imageUri2.length); // Use a safe segment length
+    const segment1 = imageUri1.substring(imageUri1.length - segmentLength);
+    const segment2 = imageUri2.substring(imageUri2.length - segmentLength);
+    const match = segment1 === segment2;
+    console.log(`Comparing image segments (last ${segmentLength} chars): Match = ${match}`);
+    // console.log(`Segment 1 (stored): ${segment1}`); // Can be noisy
+    // console.log(`Segment 2 (scanned): ${segment2}`);
+    return match;
 }
 
 export default function AdminScanPage() {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
-  const [lastScanResult, setLastScanResult] = useState<{ student: Partial<Student>; log: Partial<EntryLog> & { type: EntryType | 'Error' } } | null>(null);
+   // Update lastScanResult structure to include image URI
+   const [lastScanResult, setLastScanResult] = useState<{
+      student: Partial<Student>;
+      log: Partial<EntryLog> & { type: EntryType | 'Error' };
+      scannedImageUri?: string; // Add scanned image URI
+      imageMatch?: boolean; // Add comparison result
+   } | null>(null);
   const [isScannerActive, setIsScannerActive] = useState(false); // Start inactive, user clicks button
 
   const processDetectedBarcode = useCallback(async (imageDataUri: string) => {
@@ -66,6 +80,10 @@ export default function AdminScanPage() {
     setProcessingError(null);
     setLastScanResult(null); // Clear previous result display
     setIsScannerActive(false); // Scanner likely stopped itself, but ensure state reflects this
+
+    let extractedId: string | null = null;
+    let student: Student | null = null;
+    let imageMatchResult: boolean | undefined = undefined; // undefined means not compared or no stored image
 
     try {
         console.log("Admin Scan: Processing detected barcode image...");
@@ -77,57 +95,61 @@ export default function AdminScanPage() {
             throw new Error("Could not extract ID number from the barcode image.");
         }
 
-        const studentId = extractionResult.idNumber.trim().toLowerCase(); // Normalize ID
-        console.log(`Admin Scan: Extracted ID: ${studentId}`);
+        extractedId = extractionResult.idNumber.trim().toLowerCase(); // Normalize ID
+        console.log(`Admin Scan: Extracted ID: ${extractedId}`);
 
         // 2. Find Student in the database/storage
-        const student = getStudentById(studentId);
-        console.log(`Admin Scan: Student lookup result for ID ${studentId}:`, student);
+        student = getStudentById(extractedId);
+        console.log(`Admin Scan: Student lookup result for ID ${extractedId}:`, student);
         if (!student) {
-            throw new Error(`Student with ID ${studentId.toUpperCase()} not found. Please register first.`);
+            throw new Error(`Student with ID ${extractedId.toUpperCase()} not found. Please register first.`);
         }
 
-        // 2.5 (New) Compare scanned image with stored image
+        // 2.5 Compare scanned image with stored image
         if (student.idCardImageUri) {
-            const imagesMatch = compareImagesRoughly(student.idCardImageUri, imageDataUri);
-            console.log(`Admin Scan: Image comparison result for ${studentId}: ${imagesMatch}`);
-            if (!imagesMatch) {
-                // Decide how to handle mismatch: warning or block?
-                // For now, just log a warning toast but proceed
+            imageMatchResult = compareImagesRoughly(student.idCardImageUri, imageDataUri);
+            console.log(`Admin Scan: Image comparison result for ${extractedId}: ${imageMatchResult}`);
+            if (!imageMatchResult) {
+                // Log a warning toast but proceed
                  toast({
                      title: "Image Mismatch Warning",
                      description: `Scanned ID image might differ from the registered image for ${student.name}.`,
-                     variant: "destructive", // Use destructive variant for visibility, but don't throw error yet
+                     variant: "destructive", // Use destructive variant for visibility
+                     duration: 5000, // Show warning for 5 seconds
                  });
-                 // Potentially throw new Error("ID card image does not match the registered image."); if blocking is desired
             }
         } else {
-            console.log(`Admin Scan: No registered ID card image found for ${studentId} to compare.`);
-            // Optionally, add a warning if comparison is mandatory
+            console.log(`Admin Scan: No registered ID card image found for ${extractedId} to compare.`);
+             toast({
+                 title: "No Registered Image",
+                 description: `No ID image on file for ${student.name} to compare against.`,
+                 variant: "default",
+                 duration: 3000,
+             });
         }
 
 
         // 3. Determine Entry or Exit
-        const lastLog = getLastLogForStudent(studentId);
+        const lastLog = getLastLogForStudent(extractedId);
         let currentAction: EntryType = 'Entry';
         const now = new Date();
 
         if (lastLog) {
             const timeDiffSeconds = (now.getTime() - lastLog.timestamp.getTime()) / 1000;
-            console.log(`Admin Scan: Last log for ${studentId}:`, lastLog, `Time difference: ${timeDiffSeconds}s`);
+            console.log(`Admin Scan: Last log for ${extractedId}:`, lastLog, `Time difference: ${timeDiffSeconds}s`);
 
             if (timeDiffSeconds < MIN_LIBRARY_INTERVAL_SECONDS) {
                 throw new Error(`Please wait ${MIN_LIBRARY_INTERVAL_SECONDS}s before scanning ${student.name} again.`);
             }
             currentAction = lastLog.type === 'Entry' ? 'Exit' : 'Entry';
         } else {
-            console.log(`Admin Scan: No previous log found for ${studentId}. Defaulting to Entry.`);
+            console.log(`Admin Scan: No previous log found for ${extractedId}. Defaulting to Entry.`);
         }
 
         // 4. Create new Log Entry
         const newLog: EntryLog = {
-            id: `log_${Date.now()}_${studentId}`,
-            studentId: student.id,
+            id: `log_${Date.now()}_${extractedId}`,
+            studentId: student.id, // Use the canonical ID from the student record
             studentName: student.name,
             branch: student.branch,
             timestamp: now,
@@ -139,11 +161,16 @@ export default function AdminScanPage() {
         saveEntryLog(newLog);
         console.log("Admin Scan: Log entry saved.");
 
-        // 6. Display Success feedback
-        setLastScanResult({ student, log: newLog });
+        // 6. Display Success feedback (including image info)
+        setLastScanResult({
+            student,
+            log: newLog,
+            scannedImageUri: imageDataUri, // Store scanned image
+            imageMatch: imageMatchResult   // Store comparison result
+        });
         toast({
             title: `${currentAction} Recorded`,
-            description: `${student.name} (${student.id}) recorded as ${currentAction.toLowerCase()} at ${format(now, 'Pp')}.`,
+            description: `${student.name} (${student.id.toUpperCase()}) recorded as ${currentAction.toLowerCase()} at ${format(now, 'Pp')}.`,
             variant: 'default',
          });
          console.log(`Admin Scan: Success - ${student.name} recorded as ${currentAction}.`);
@@ -158,38 +185,36 @@ export default function AdminScanPage() {
             variant: 'destructive',
         });
 
-        // Display error specific info
-        let errorStudentId = "Unknown";
-        const match = errorMessage.match(/ID (.*?) not found/i); // Case-insensitive match
-        if (match && match[1]) {
-            errorStudentId = match[1].toUpperCase();
-        } else {
-            // Try extracting from the image if possible (e.g., if ID extraction failed)
-            // This part is tricky without knowing the exact imageDataUri format/content
-             // For now, keep it simple
+        // Display error specific info, including attempted ID and potentially the student data if found before error
+        let errorStudentData: Partial<Student> = { id: extractedId || "Unknown", name: "Unknown Student" };
+        if (student) { // If student was found before the error occurred (e.g., rate limit)
+            errorStudentData = student;
+        } else if (extractedId) { // If ID was extracted but student not found
+             errorStudentData = { id: extractedId, name: "Student Not Found" };
         }
 
         setLastScanResult({
-            student: { id: errorStudentId, name:"Unknown Student" },
-            log: { type: 'Error', timestamp: new Date() }
+            student: errorStudentData,
+            log: { type: 'Error', timestamp: new Date() },
+            scannedImageUri: imageDataUri, // Include scanned image even on error
+            imageMatch: imageMatchResult, // Include comparison result if available
         });
 
     } finally {
         setIsProcessing(false);
-        // Restart scanner automatically after a short delay to allow reading the result/error
+        // Restart scanner automatically after a delay
         setTimeout(() => {
-            if (!isScannerActive && !isProcessing) { // Check again in case state changed
+            if (!isScannerActive && !isProcessing) {
                 console.log("Admin Scan: Restarting scanner session after processing.");
                 startScannerSession();
             }
-        }, 1500); // Delay in milliseconds (e.g., 1.5 seconds)
+        }, 2000); // Increased delay to 2 seconds
     }
   }, [isProcessing, toast, isScannerActive]); // Added isScannerActive dependency
 
 
   const handleScanError = useCallback((error: Error) => {
     console.error("Admin Scan: Scanner component error:", error);
-    // Display scanner-specific errors if needed, or rely on processDetectedBarcode catch block
     const errMsg = `Scanner Error: ${error.message}. Check camera permissions and ensure it's not in use.`;
     setProcessingError(errMsg);
     toast({
@@ -250,7 +275,7 @@ export default function AdminScanPage() {
                        : lastScanResult.log.type === 'Entry'
                          ? 'border-green-500 bg-green-500/10'
                          : 'border-red-500 bg-red-500/10'
-                    }`}>
+                    } ${lastScanResult.imageMatch === false ? 'border-yellow-500' : ''}`}> {/* Highlight mismatch */}
                      <CardHeader>
                          <CardTitle className="flex items-center gap-2 text-lg">
                              {lastScanResult.log.type === 'Error' ? (
@@ -265,19 +290,41 @@ export default function AdminScanPage() {
                             {lastScanResult.log.timestamp ? `Scan Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : processingError || "Details unavailable"}
                          </CardDescription>
                      </CardHeader>
-                    {lastScanResult.log.type !== 'Error' && lastScanResult.student && ( // Only show details on success
-                         <CardContent className="text-sm space-y-1">
-                             <p><strong>Student:</strong> {lastScanResult.student.name || 'N/A'}</p>
-                             <p><strong>ID:</strong> {lastScanResult.student.id?.toUpperCase() || 'N/A'}</p>
-                             <p><strong>Branch:</strong> {lastScanResult.student.branch || 'N/A'}</p>
-                         </CardContent>
-                     )}
-                     {lastScanResult.log.type === 'Error' && (
-                         <CardContent className="text-sm space-y-1">
-                              <p><strong>Attempted ID:</strong> {lastScanResult.student?.id || 'Unknown'}</p>
-                              <p className="text-destructive font-medium">{processingError || "An unknown error occurred."}</p>
-                         </CardContent>
-                     )}
+                     <CardContent className="text-sm space-y-2">
+                        {/* Display Scanned Image */}
+                        {lastScanResult.scannedImageUri && (
+                            <div className="flex flex-col items-center mb-2">
+                                <p className="text-xs font-medium text-muted-foreground mb-1">Scanned Image:</p>
+                                <Image
+                                    src={lastScanResult.scannedImageUri}
+                                    alt="Scanned ID"
+                                    width={100}
+                                    height={150}
+                                    className={`rounded border ${lastScanResult.imageMatch === false ? 'border-yellow-500 border-2' : 'border-muted'}`}
+                                />
+                                {lastScanResult.imageMatch === false && (
+                                    <span className="text-xs text-yellow-600 font-semibold mt-1">Image Mismatch!</span>
+                                )}
+                                 {lastScanResult.imageMatch === undefined && lastScanResult.log.type !== 'Error' && (
+                                     <span className="text-xs text-muted-foreground mt-1">(No stored image for comparison)</span>
+                                 )}
+                            </div>
+                        )}
+
+                        {/* Display Student Details */}
+                        <div>
+                            <p><strong>Student:</strong> {lastScanResult.student?.name || 'N/A'}</p>
+                            <p><strong>ID:</strong> {lastScanResult.student?.id?.toUpperCase() || 'N/A'}</p>
+                            {lastScanResult.log.type !== 'Error' && (
+                                <p><strong>Branch:</strong> {lastScanResult.student?.branch || 'N/A'}</p>
+                            )}
+                        </div>
+
+                        {/* Display Error Message if applicable */}
+                        {lastScanResult.log.type === 'Error' && (
+                            <p className="text-destructive font-medium pt-1">{processingError || "An unknown error occurred."}</p>
+                        )}
+                    </CardContent>
                  </Card>
              )}
 

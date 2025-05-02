@@ -42,11 +42,12 @@ const mapYearOfStudy = (yearStr?: string): YearOfStudy | undefined => {
 const mapBranch = (branchStr?: string): Branch | undefined => {
    if (!branchStr) return undefined;
    const lowerBranchStr = branchStr.trim().toLowerCase();
+   // Find a known branch case-insensitively
    const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
-   // If it's a known branch, return it, otherwise return the original trimmed string
-   // Ensure custom branches are stored if they don't match known ones exactly
+   // Return the canonical known branch name, or the trimmed input string if not found
    return knownBranch || branchStr.trim();
 }
+
 
 // Main Component
 export default function AdminAddStudentPage() {
@@ -60,14 +61,18 @@ export default function AdminAddStudentPage() {
   const [activeTab, setActiveTab] = useState('scan'); // 'scan', 'upload', 'manual'
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-   // Derive default values for the form based on extracted data or manual input
-   const formDefaultValues: Partial<StudentFormData> = React.useMemo(() => ({
-      id: extractedData?.idNumber || '',
-      name: extractedData?.studentName || '',
-      branch: mapBranch(extractedData?.branch) || '', // Use mapBranch here too
-      rollNo: extractedData?.rollNo || '',
-      yearOfStudy: extractedData?.yearOfStudy as YearOfStudy | undefined // Use mapped year
-   }), [extractedData]); // Recalculate only when extractedData changes
+   // Derive default values for the form based on extracted data
+   // Recalculated only when extractedData changes
+   const formDefaultValues: Partial<StudentFormData> = React.useMemo(() => {
+        if (!extractedData) return {};
+        return {
+            id: extractedData.idNumber || '',
+            name: extractedData.studentName || '',
+            branch: mapBranch(extractedData.branch) || '',
+            rollNo: extractedData.rollNo || '',
+            yearOfStudy: mapYearOfStudy(extractedData.yearOfStudy) // Keep as enum type or undefined
+        };
+    }, [extractedData]);
 
 
   // Reset state when switching tabs
@@ -96,7 +101,7 @@ export default function AdminAddStudentPage() {
     }
 
     console.log("Processing image:", imageDataUri.substring(0, 50));
-    setCapturedImageUri(imageDataUri); // Store the image URI for potential submission
+    setCapturedImageUri(imageDataUri); // Store the image URI for display and submission
     setExtractedData(null);
     setExtractionError(null);
     setIsExtracting(true);
@@ -113,7 +118,7 @@ export default function AdminAddStudentPage() {
                  studentName: result.studentName,
                  branch: result.branch, // Keep original string from AI for potential mapping later
                  rollNo: result.rollNo,
-                 yearOfStudy: mapYearOfStudy(result.yearOfStudy)?.toString(), // Map and convert back to string for ExtractedIdData type
+                 yearOfStudy: result.yearOfStudy, // Keep original string from AI for mapping later
              };
              console.log("Mapped Extracted Data:", mappedData);
              setExtractedData(mappedData); // Update state with potentially partial data
@@ -226,7 +231,8 @@ export default function AdminAddStudentPage() {
 
       const newStudent: Student = {
         ...formData,
-        idCardImageUri: capturedImageUri || undefined, // Save the captured/uploaded image URI
+        // Save the captured/uploaded image URI from the state
+        idCardImageUri: capturedImageUri || undefined,
         createdAt: new Date(),
       };
 
@@ -354,7 +360,7 @@ export default function AdminAddStudentPage() {
                     {!isExtracting && (
                         <StudentForm
                             // Use key to force re-render with new defaults when extractedData changes significantly (e.g., new scan/upload or manual stop)
-                            key={capturedImageUri || activeTab} // Key changes when image changes or tab switched to manual
+                             key={capturedImageUri || activeTab} // Key changes when image changes or tab switched to manual
                             onSubmit={handleFormSubmit}
                             defaultValues={formDefaultValues}
                             isLoading={isSubmitting}

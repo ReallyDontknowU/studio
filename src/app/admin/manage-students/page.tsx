@@ -1,8 +1,9 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -10,11 +11,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCap
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"; // Import Dialog components
 import { useToast } from '@/hooks/use-toast';
-import { Search, Edit, Trash2, UserX } from 'lucide-react';
-import type { Student } from '@/lib/types';
+import { Search, Edit, Trash2, UserX, Camera, Upload, Image as ImageIcon, Loader2 } from 'lucide-react'; // Added Image, Camera, Upload, Loader2
+import type { Student, ExtractedIdData, YearOfStudy, Branch } from '@/lib/types';
 import StudentForm, { StudentFormData } from '@/components/student-form'; // Import StudentForm
-import { BRANCHES } from '@/lib/constants'; // Import branches for form
+import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants'; // Import branches for form
 import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea
+import BarcodeScanner from '@/components/barcode-scanner'; // Import Scanner
+import { adminExtractBarcodeData } from '@/ai/flows/admin-extract-barcode-data'; // Import AI flow
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'; // Import Alert for errors
+import { Label } from '@/components/ui/label'; // Import Label
 
 // Helper functions to manage students in localStorage (replace with API calls)
 const getStudents = (): Student[] => {
@@ -26,6 +31,26 @@ const saveStudents = (students: Student[]): void => {
   localStorage.setItem('students', JSON.stringify(students));
 };
 
+// Helper to map string year to enum type (copy from add-student)
+const mapYearOfStudy = (yearStr?: string): YearOfStudy | undefined => {
+    if (!yearStr) return undefined;
+    const upperYear = yearStr.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (YEARS_OF_STUDY.includes(upperYear as YearOfStudy)) return upperYear as YearOfStudy;
+    if (upperYear.includes('FIRST') || upperYear.includes('FY') || upperYear === '1') return 'FY';
+    if (upperYear.includes('SECOND') || upperYear.includes('SY') || upperYear === '2') return 'SY';
+    if (upperYear.includes('THIRD') || upperYear.includes('TY') || upperYear === '3') return 'TY';
+    return undefined;
+};
+
+// Helper to map string branch (copy from add-student)
+const mapBranch = (branchStr?: string): Branch | undefined => {
+    if (!branchStr) return undefined;
+    const lowerBranchStr = branchStr.trim().toLowerCase();
+    const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
+    return knownBranch || branchStr.trim();
+}
+
+
 export default function AdminManageStudentsPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -34,10 +59,35 @@ export default function AdminManageStudentsPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [studentToEdit, setStudentToEdit] = useState<Student | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isImageViewOpen, setIsImageViewOpen] = useState(false);
+  const [imageToView, setImageToView] = useState<string | null>(null);
+
+  // State for handling image updates in edit dialog
+  const [editModeCapturedImageUri, setEditModeCapturedImageUri] = useState<string | null>(null);
+  const [isEditModeScanning, setIsEditModeScanning] = useState(false);
+  const [isEditModeUploading, setIsEditModeUploading] = useState(false); // Track upload state
+  const [editModeExtractionError, setEditModeExtractionError] = useState<string | null>(null);
+  const [isEditModeExtracting, setIsEditModeExtracting] = useState(false); // Track AI processing
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   useEffect(() => {
     setStudents(getStudents());
   }, []);
+
+  // Close image view modal when edit dialog closes
+  useEffect(() => {
+      if (!isEditDialogOpen) {
+          setIsImageViewOpen(false);
+          setImageToView(null);
+          setEditModeCapturedImageUri(null); // Reset edit image state
+          setIsEditModeScanning(false);
+          setIsEditModeUploading(false);
+          setEditModeExtractionError(null);
+          setIsEditModeExtracting(false);
+      }
+  }, [isEditDialogOpen]);
+
 
   const filteredStudents = useMemo(() => {
     if (!searchTerm) {
@@ -69,8 +119,19 @@ export default function AdminManageStudentsPage() {
     toast({ title: 'Success', description: `Student "${studentToDelete.name}" (ID: ${studentId}) deleted.`, variant: 'destructive' });
   };
 
+  const handleViewImageClick = (student: Student) => {
+     if (student.idCardImageUri) {
+        setImageToView(student.idCardImageUri);
+        setIsImageViewOpen(true);
+     } else {
+        toast({ title: "No Image", description: "No ID card image is available for this student.", variant: "default" });
+     }
+  };
+
+
   const handleEditClick = (student: Student) => {
     setStudentToEdit(student);
+    setEditModeCapturedImageUri(student.idCardImageUri || null); // Set initial image for edit mode
     setIsEditDialogOpen(true);
   };
 
@@ -90,11 +151,19 @@ export default function AdminManageStudentsPage() {
          return; // Stop submission
      }
 
+     // Prepare updated student data
+     const updatedStudentData: Student = {
+        ...studentToEdit, // Keep original createdAt etc.
+        ...formData, // Apply form data changes
+        // Update image URI only if a new one was captured/uploaded during edit
+        idCardImageUri: editModeCapturedImageUri || studentToEdit.idCardImageUri,
+     };
+
 
     // TODO: Replace with API call
     const updatedStudents = students.map(student =>
       student.id === studentToEdit.id
-        ? { ...studentToEdit, ...formData } // Update student data, keep original createdAt and image URI
+        ? updatedStudentData
         : student
     );
     saveStudents(updatedStudents);
@@ -102,8 +171,100 @@ export default function AdminManageStudentsPage() {
     setIsLoading(false);
     setIsEditDialogOpen(false);
     setStudentToEdit(null);
+    setEditModeCapturedImageUri(null); // Clear edit image state
     toast({ title: 'Success', description: `Student "${formData.name}" updated.` });
   };
+
+   // --- Edit Mode Image Handling ---
+
+   const processEditImage = useCallback(async (imageDataUri: string | null) => {
+     if (!imageDataUri) {
+       setEditModeCapturedImageUri(studentToEdit?.idCardImageUri || null); // Revert to original if capture stopped/failed
+       setEditModeExtractionError("No image captured or selected.");
+       setIsEditModeScanning(false);
+       setIsEditModeUploading(false);
+       setIsEditModeExtracting(false);
+       return;
+     }
+
+     setEditModeCapturedImageUri(imageDataUri); // Show the new image immediately
+     setEditModeExtractionError(null);
+     setIsEditModeExtracting(true); // Start AI processing indicator
+     setIsEditModeScanning(false); // Ensure scanner state is off
+     setIsEditModeUploading(false); // Ensure upload state is off
+
+     try {
+       const result = await adminExtractBarcodeData({ photoDataUri: imageDataUri });
+       console.log("Edit Mode - adminExtractBarcodeData result:", result);
+
+       if (result && studentToEdit) { // Ensure studentToEdit is available
+         // Optionally pre-fill form fields based on new scan (BE CAREFUL NOT TO OVERWRITE INTENTIONAL MANUAL EDITS)
+         // You might want to ask the user if they want to update fields based on the new scan.
+         // For now, just update the image and let the user manually adjust fields if needed.
+
+          // Update the form's default values IF the corresponding field in the form is currently empty or matches the OLD student data
+          const currentFormValues = (document.getElementById(`student-form-${studentToEdit.id}`) as HTMLFormElement)?.elements; // Access form elements if possible (may need ref or context)
+          // Or, more reliably, use react-hook-form's API if passed down or via context
+          // Example (conceptual - needs integration with StudentForm's form instance):
+          // const form = useFormContext(); // If using FormProvider in dialog
+          // const currentName = form.getValues('name');
+          // if (!currentName || currentName === studentToEdit.name) {
+          //    form.setValue('name', result.studentName || studentToEdit.name || '', { shouldValidate: true });
+          // }
+          // Repeat for other fields (id, rollNo, branch, yearOfStudy)
+
+         toast({
+           title: "Image Processed",
+           description: `New ID image captured/uploaded. Extracted ID: ${result.studentId || 'Not found'}. Verify details.`,
+         });
+       } else {
+           setEditModeExtractionError("Could not extract details from the new image.");
+       }
+     } catch (error: any) {
+       console.error('Error processing image in edit mode:', error);
+       setEditModeExtractionError(`Failed to process new image: ${error.message || 'Unknown error'}.`);
+     } finally {
+       setIsEditModeExtracting(false); // Stop AI processing indicator
+     }
+   }, [studentToEdit, toast]); // Dependencies
+
+   const handleEditScanSuccess = (imageDataUri: string) => {
+     setIsEditModeScanning(false); // Turn off scanner view
+     processEditImage(imageDataUri);
+   };
+
+   const handleEditManualStop = (imageDataUri: string | null) => {
+     setIsEditModeScanning(false); // Turn off scanner view
+     processEditImage(imageDataUri); // Process the (potentially null) captured frame
+   };
+
+    const handleEditFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            setIsEditModeUploading(true); // Indicate upload processing
+            setEditModeExtractionError(null);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                    processEditImage(reader.result); // Process the uploaded image
+                } else {
+                    setEditModeExtractionError("Failed to read uploaded file.");
+                    setIsEditModeUploading(false);
+                }
+            };
+            reader.onerror = () => {
+                setEditModeExtractionError("Error reading uploaded file.");
+                setIsEditModeUploading(false);
+            }
+            reader.readAsDataURL(file);
+        }
+        // Reset file input
+        if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    const triggerEditFileUpload = () => {
+      fileInputRef.current?.click();
+    };
 
 
   return (
@@ -125,7 +286,8 @@ export default function AdminManageStudentsPage() {
                   className="pl-10" // Add padding for the icon
                />
             </div>
-             {/* Removed Add New Student Button */}
+            {/* Add New Student Button - removed from dashboard, keep here? Or keep in dashboard? */}
+            {/* Decision: Keep consistent nav, remove button here, rely on dashboard */}
              {/* <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle">
                 Add New Student
             </Button> */}
@@ -137,6 +299,7 @@ export default function AdminManageStudentsPage() {
               <TableCaption>A list of registered students.</TableCaption>
               <TableHeader>
                 <TableRow>
+                   <TableHead>ID Card</TableHead> {/* New column for image */}
                   <TableHead>Student ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Branch</TableHead>
@@ -149,12 +312,21 @@ export default function AdminManageStudentsPage() {
                 {filteredStudents.length > 0 ? (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id}>
+                       <TableCell>
+                           {student.idCardImageUri ? (
+                               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewImageClick(student)} title="View ID Card">
+                                   <ImageIcon className="h-4 w-4 text-primary" />
+                               </Button>
+                           ) : (
+                               <span className="text-xs text-muted-foreground">No Image</span>
+                           )}
+                        </TableCell>
                       <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
                       <TableCell className="whitespace-nowrap">{student.name}</TableCell>
                       <TableCell>{student.branch}</TableCell>
                       <TableCell>{student.rollNo}</TableCell>
                       <TableCell>{student.yearOfStudy}</TableCell>
-                      <TableCell className="text-right space-x-2 whitespace-nowrap">
+                      <TableCell className="text-right space-x-1 whitespace-nowrap"> {/* Reduced space */}
                         <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
                              <Edit className="h-4 w-4" />
                          </Button>
@@ -185,7 +357,7 @@ export default function AdminManageStudentsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
+                    <TableCell colSpan={7} className="h-24 text-center"> {/* Increased colSpan */}
                       {searchTerm ? `No students found matching "${searchTerm}".` : "No students registered yet."}
                     </TableCell>
                   </TableRow>
@@ -196,46 +368,133 @@ export default function AdminManageStudentsPage() {
 
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                {/* Adjusted DialogContent for scrolling */}
-                <DialogContent className="sm:max-w-[600px] grid grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90vh] p-0"> {/* Added grid-rows and auto footer */}
-                    <DialogHeader className="p-6 pb-4 border-b"> {/* Added border */}
+                <DialogContent className="sm:max-w-[600px] grid grid-rows-[auto_minmax(0,1fr)_auto] max-h-[90vh] p-0">
+                    <DialogHeader className="p-6 pb-4 border-b">
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
-                            Make changes to the student's details below. Click save when you're done.
+                            Make changes to the student's details. You can also update the ID card image.
                         </DialogDescription>
                     </DialogHeader>
-                    {/* ScrollArea wraps the form */}
-                    <ScrollArea className="overflow-y-auto px-6 pt-4"> {/* Adjusted padding */}
-                       {studentToEdit && (
-                           <StudentForm
-                              // Removed key prop unless absolutely necessary for specific reset behavior
-                              onSubmit={handleEditSubmit}
-                              defaultValues={studentToEdit} // Pass the full student object
-                              isLoading={isLoading}
-                              submitButtonText={isLoading ? 'Saving...' : 'Save Changes'}
-                              formTitle="" // Hide inner title/desc
-                              formDescription=""
-                              availableBranches={BRANCHES} // Or fetch dynamically if needed
-                              // Remove internal CardFooter, use DialogFooter instead
-                           />
+
+                    <ScrollArea className="overflow-y-auto px-6 pt-4">
+                        {studentToEdit && (
+                             <>
+                                {/* Image Section */}
+                                <div className="mb-6 p-2 border rounded-md bg-muted max-w-sm mx-auto">
+                                    <p className="text-sm font-medium text-center mb-2">ID Card Image:</p>
+                                    {isEditModeScanning ? (
+                                        // Show Scanner when scanning
+                                        <div className="flex flex-col items-center">
+                                            <BarcodeScanner
+                                                onScanSuccess={handleEditScanSuccess}
+                                                onScanError={(err) => {
+                                                    setEditModeExtractionError(`Scanner error: ${err.message}`);
+                                                    setIsEditModeScanning(false);
+                                                }}
+                                                onManualStop={handleEditManualStop}
+                                                scanPrompt="Position ID card..."
+                                                disabled={isEditModeExtracting}
+                                                autoStartScanLoop={false} // Require manual stop/capture in edit? Or keep auto? Let's try false
+                                            />
+                                            {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
+                                        </div>
+                                    ) : (
+                                         // Show Image or Placeholder
+                                        <div className="flex flex-col items-center">
+                                            {editModeCapturedImageUri ? (
+                                                <Image
+                                                    src={editModeCapturedImageUri}
+                                                    alt="Student ID Card"
+                                                    width={250}
+                                                    height={375}
+                                                    className="rounded-md object-contain mb-2"
+                                                />
+                                            ) : (
+                                                <div className="h-[200px] w-[150px] flex items-center justify-center bg-secondary rounded-md mb-2">
+                                                    <span className="text-muted-foreground text-sm">No Image</span>
+                                                </div>
+                                            )}
+                                            {/* Buttons to Scan/Upload */}
+                                             <div className="flex gap-2 mt-2">
+                                                  <Button variant="outline" size="sm" onClick={() => setIsEditModeScanning(true)} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
+                                                       <Camera className="mr-1 h-3 w-3"/> Re-Scan
+                                                  </Button>
+                                                  <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}>
+                                                       {isEditModeUploading ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <Upload className="mr-1 h-3 w-3"/>} Upload
+                                                  </Button>
+                                                  <Input
+                                                      id="edit-file-upload"
+                                                      type="file"
+                                                      accept="image/*"
+                                                      ref={fileInputRef}
+                                                      onChange={handleEditFileUpload}
+                                                      className="hidden"
+                                                      disabled={isLoading || isEditModeScanning || isEditModeUploading || isEditModeExtracting}
+                                                  />
+                                             </div>
+                                              {isEditModeExtracting && <span className="text-xs text-muted-foreground mt-1">Processing image...</span>}
+                                              {editModeExtractionError && <Alert variant="destructive" className="mt-2 text-xs p-2"><AlertDescription>{editModeExtractionError}</AlertDescription></Alert>}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Student Form */}
+                                <StudentForm
+                                    formId={`student-form-${studentToEdit.id}`} // Unique ID for the form
+                                    onSubmit={handleEditSubmit}
+                                    defaultValues={studentToEdit} // Pass the full student object
+                                    isLoading={isLoading || isEditModeExtracting || isEditModeUploading} // Disable form while loading/processing
+                                    submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // This button is now external
+                                    formTitle="" // Hide inner title/desc
+                                    formDescription=""
+                                    availableBranches={BRANCHES} // Or fetch dynamically if needed
+                                />
+                            </>
                        )}
-                       {/* Add some padding at the bottom inside scroll area if needed */}
-                       <div className="pb-6"></div>
+                       <div className="pb-6"></div> {/* Spacer at bottom of scroll */}
                     </ScrollArea>
-                    {/* Separate DialogFooter */}
-                    <DialogFooter className="p-6 pt-4 border-t"> {/* Added border */}
-                       {/* Optionally keep DialogClose here or rely on the X button */}
+
+                    <DialogFooter className="p-6 pt-4 border-t">
                        <DialogClose asChild>
-                         <Button variant="outline">Cancel</Button>
+                         <Button variant="outline" disabled={isLoading}>Cancel</Button>
                        </DialogClose>
-                       {/* Trigger form submission from outside */}
-                       <Button onClick={() => document.getElementById(`student-form-${studentToEdit?.id || 'edit'}`)?.requestSubmit()} disabled={isLoading}>
+                       <Button
+                          onClick={() => document.getElementById(`student-form-${studentToEdit?.id}`)?.requestSubmit()}
+                          disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} // Also disable save during image processing
+                        >
                           {isLoading ? 'Saving...' : 'Save Changes'}
                        </Button>
                     </DialogFooter>
                  </DialogContent>
              </Dialog>
 
+            {/* Image View Dialog */}
+            <Dialog open={isImageViewOpen} onOpenChange={setIsImageViewOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Student ID Card</DialogTitle>
+                         <DialogDescription>Image stored for the student.</DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-center p-4">
+                        {imageToView && (
+                            <Image
+                                src={imageToView}
+                                alt="Student ID Card"
+                                width={300}
+                                height={450}
+                                className="rounded-md object-contain"
+                            />
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild>
+                            <Button type="button" variant="secondary">
+                                Close
+                            </Button>
+                        </DialogClose>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
         </CardContent>
       </Card>

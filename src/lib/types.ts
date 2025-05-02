@@ -1,3 +1,4 @@
+
 export type Branch = 'Computer' | 'Electronic' | 'Civil' | 'Mechanical' | 'Electrical' | string; // Allow custom branches
 export type YearOfStudy = 'FY' | 'SY' | 'TY';
 
@@ -7,7 +8,7 @@ export interface Student {
   branch: Branch;
   rollNo: string;
   yearOfStudy: YearOfStudy;
-  barcodeImageUri?: string; // Optional: Store the captured barcode image URI (legacy/alternative field)
+  // Ensure idCardImageUri is part of the type, though it can be undefined
   idCardImageUri?: string; // Optional: Store the captured ID card image URI during registration
   createdAt: Date;
 }
