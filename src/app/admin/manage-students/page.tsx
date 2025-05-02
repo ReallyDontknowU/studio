@@ -324,13 +324,7 @@ export default function AdminManageStudentsPage() {
                            ) : (
                                <span className="text-xs text-muted-foreground">No Image</span>
                            )}
-                        </TableCell>
-                      <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
-                      <TableCell className="whitespace-nowrap">{student.name}</TableCell>
-                      <TableCell>{student.branch}</TableCell>
-                      <TableCell>{student.rollNo || '-'}</TableCell> {/* Display dash if no roll no */}
-                      <TableCell>{student.yearOfStudy}</TableCell>
-                      <TableCell className="text-right space-x-1 whitespace-nowrap"> {/* Reduced space */}
+                        </TableCell><TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell><TableCell className="whitespace-nowrap">{student.name}</TableCell><TableCell>{student.branch}</TableCell><TableCell>{student.rollNo || '-'}</TableCell>{/* Display dash if no roll no */}<TableCell>{student.yearOfStudy}</TableCell><TableCell className="text-right space-x-1 whitespace-nowrap">{/* Reduced space */}
                         <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
                              <Edit className="h-4 w-4" />
                          </Button>
@@ -372,15 +366,15 @@ export default function AdminManageStudentsPage() {
 
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[600px] p-0"> {/* Use flex column layout, remove internal padding */}
-                    <DialogHeader> {/* Header stays, padding handled by component */}
+                <DialogContent className="sm:max-w-[600px] p-0 flex flex-col max-h-[90vh]"> {/* Use flex column, limit height */}
+                    <DialogHeader className="p-6 pb-4 border-b shrink-0"> {/* Add padding and border */}
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details. You can also update the ID card image.
                         </DialogDescription>
                     </DialogHeader>
 
-                    {/* ScrollArea wraps the main content section */}
+                    {/* ScrollArea wraps ONLY the main content section */}
                     <ScrollArea className="flex-grow overflow-y-auto">
                        <div className="px-6 pt-4 pb-6"> {/* Add padding inside ScrollArea */}
                            {studentToEdit && (
@@ -460,7 +454,7 @@ export default function AdminManageStudentsPage() {
                        </div> {/* End padding container */}
                     </ScrollArea>
 
-                    <DialogFooter> {/* Footer stays, padding handled by component */}
+                    <DialogFooter className="p-6 pt-4 border-t shrink-0"> {/* Add padding and border */}
                        <DialogClose asChild>
                          <Button variant="outline" disabled={isLoading}>Cancel</Button>
                        </DialogClose>
@@ -521,3 +515,6 @@ export default function AdminManageStudentsPage() {
     </div>
   );
 }
+
+
+    
