@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -40,6 +41,17 @@ const saveEntryLog = (log: EntryLog): void => {
     // TODO: Also save to Excel/SQLite
 };
 
+// Simplified image comparison (for demonstration - replace with more robust method)
+const compareImagesRoughly = (imageUri1?: string, imageUri2?: string): boolean => {
+    if (!imageUri1 || !imageUri2) return false;
+    // Very basic comparison based on length or a small segment
+    // A real implementation would involve feature extraction or perceptual hashing
+    const segment1 = imageUri1.substring(imageUri1.length - 100);
+    const segment2 = imageUri2.substring(imageUri2.length - 100);
+    console.log(`Comparing image segments: \nSegment 1 (stored): ${segment1}\nSegment 2 (scanned): ${segment2}`);
+    return segment1 === segment2;
+}
+
 export default function AdminScanPage() {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -74,6 +86,26 @@ export default function AdminScanPage() {
         if (!student) {
             throw new Error(`Student with ID ${studentId.toUpperCase()} not found. Please register first.`);
         }
+
+        // 2.5 (New) Compare scanned image with stored image
+        if (student.idCardImageUri) {
+            const imagesMatch = compareImagesRoughly(student.idCardImageUri, imageDataUri);
+            console.log(`Admin Scan: Image comparison result for ${studentId}: ${imagesMatch}`);
+            if (!imagesMatch) {
+                // Decide how to handle mismatch: warning or block?
+                // For now, just log a warning toast but proceed
+                 toast({
+                     title: "Image Mismatch Warning",
+                     description: `Scanned ID image might differ from the registered image for ${student.name}.`,
+                     variant: "destructive", // Use destructive variant for visibility, but don't throw error yet
+                 });
+                 // Potentially throw new Error("ID card image does not match the registered image."); if blocking is desired
+            }
+        } else {
+            console.log(`Admin Scan: No registered ID card image found for ${studentId} to compare.`);
+            // Optionally, add a warning if comparison is mandatory
+        }
+
 
         // 3. Determine Entry or Exit
         const lastLog = getLastLogForStudent(studentId);
@@ -144,10 +176,15 @@ export default function AdminScanPage() {
 
     } finally {
         setIsProcessing(false);
-        // Do not automatically restart scanner here. User might want to see the result/error.
-        // setIsScannerActive(true);
+        // Restart scanner automatically after a short delay to allow reading the result/error
+        setTimeout(() => {
+            if (!isScannerActive && !isProcessing) { // Check again in case state changed
+                console.log("Admin Scan: Restarting scanner session after processing.");
+                startScannerSession();
+            }
+        }, 1500); // Delay in milliseconds (e.g., 1.5 seconds)
     }
-  }, [isProcessing, toast]); // Dependencies
+  }, [isProcessing, toast, isScannerActive]); // Added isScannerActive dependency
 
 
   const handleScanError = useCallback((error: Error) => {
@@ -189,6 +226,7 @@ export default function AdminScanPage() {
                     onScanError={handleScanError}
                     scanPrompt="Scanning for barcode..."
                     disabled={isProcessing} // Disable interaction while processing previous scan
+                    autoStartScanLoop={true} // Enable automatic scanning loop
                  />
              ) : (
                  <Button onClick={startScannerSession} className="transition-subtle" disabled={isProcessing}>

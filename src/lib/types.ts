@@ -7,7 +7,8 @@ export interface Student {
   branch: Branch;
   rollNo: string;
   yearOfStudy: YearOfStudy;
-  barcodeImageUri?: string; // Optional: Store the captured barcode image URI
+  barcodeImageUri?: string; // Optional: Store the captured barcode image URI (legacy/alternative field)
+  idCardImageUri?: string; // Optional: Store the captured ID card image URI during registration
   createdAt: Date;
 }
 

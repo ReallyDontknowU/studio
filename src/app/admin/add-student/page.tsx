@@ -44,6 +44,7 @@ const mapBranch = (branchStr?: string): Branch | undefined => {
    const lowerBranchStr = branchStr.trim().toLowerCase();
    const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
    // If it's a known branch, return it, otherwise return the original trimmed string
+   // Ensure custom branches are stored if they don't match known ones exactly
    return knownBranch || branchStr.trim();
 }
 
@@ -63,9 +64,9 @@ export default function AdminAddStudentPage() {
    const formDefaultValues: Partial<StudentFormData> = React.useMemo(() => ({
       id: extractedData?.idNumber || '',
       name: extractedData?.studentName || '',
-      branch: extractedData?.branch || '',
+      branch: mapBranch(extractedData?.branch) || '', // Use mapBranch here too
       rollNo: extractedData?.rollNo || '',
-      yearOfStudy: extractedData?.yearOfStudy as YearOfStudy | undefined // Cast needed here
+      yearOfStudy: extractedData?.yearOfStudy as YearOfStudy | undefined // Use mapped year
    }), [extractedData]); // Recalculate only when extractedData changes
 
 
@@ -95,7 +96,7 @@ export default function AdminAddStudentPage() {
     }
 
     console.log("Processing image:", imageDataUri.substring(0, 50));
-    setCapturedImageUri(imageDataUri);
+    setCapturedImageUri(imageDataUri); // Store the image URI for potential submission
     setExtractedData(null);
     setExtractionError(null);
     setIsExtracting(true);
@@ -110,9 +111,9 @@ export default function AdminAddStudentPage() {
              const mappedData: ExtractedIdData = {
                  idNumber: result.studentId || '', // Default to empty string if undefined/null
                  studentName: result.studentName,
-                 branch: mapBranch(result.branch), // Use helper
+                 branch: result.branch, // Keep original string from AI for potential mapping later
                  rollNo: result.rollNo,
-                 yearOfStudy: mapYearOfStudy(result.yearOfStudy) // Use helper
+                 yearOfStudy: mapYearOfStudy(result.yearOfStudy)?.toString(), // Map and convert back to string for ExtractedIdData type
              };
              console.log("Mapped Extracted Data:", mappedData);
              setExtractedData(mappedData); // Update state with potentially partial data
@@ -218,14 +219,14 @@ export default function AdminAddStudentPage() {
        }
 
 
-      console.log('Admin submitting registration data:', { ...formData, barcodeImageUri: capturedImageUri });
+       console.log('Admin submitting registration data:', { ...formData, idCardImageUri: capturedImageUri?.substring(0, 50) + "..." });
 
       // Simulate network delay (REMOVE IN PRODUCTION)
       // await new Promise(resolve => setTimeout(resolve, 1000));
 
       const newStudent: Student = {
         ...formData,
-        barcodeImageUri: capturedImageUri || undefined, // Use the image from scan/upload if available
+        idCardImageUri: capturedImageUri || undefined, // Save the captured/uploaded image URI
         createdAt: new Date(),
       };
 

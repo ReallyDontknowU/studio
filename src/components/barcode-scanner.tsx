@@ -11,19 +11,21 @@ import { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatE
 interface BarcodeScannerProps {
   onScanSuccess: (imageDataUri: string) => void;
   onScanError?: (error: Error) => void;
-  onManualStop?: (imageDataUri: string | null) => void; // New prop for manual stop
+  // onManualStop removed
   buttonText?: string;
   scanPrompt?: string;
   disabled?: boolean;
+  autoStartScanLoop?: boolean; // Keep this to control the loop
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   onScanSuccess,
   onScanError,
-  onManualStop, // Destructure new prop
+  // onManualStop removed
   buttonText = 'Start Scanning',
   scanPrompt = 'Position barcode in front of the camera...',
   disabled = false,
+  autoStartScanLoop = true, // Default to auto-starting loop if camera starts
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,7 +35,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
   const [isStarting, setIsStarting] = useState(false); // Camera hardware/permission acquisition phase
   const [isActive, setIsActive] = useState(false); // Stream is acquired and video element should be visible
-  const [isScanning, setIsScanning] = useState(false); // Actively decoding frames
+  const [isScanning, setIsScanning] = useState(false); // Actively decoding frames (controlled by autoStartScanLoop)
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -55,8 +57,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     // Reset ZXing reader
     if (readerRef.current) {
       try {
-        // No need to explicitly call reset, just nullify the ref
-        // readerRef.current.reset(); // reset() can sometimes cause issues if called after stream stop
         console.log(`[${caller || 'cleanup'}] Nullifying ZXing Reader reference.`);
       } catch (resetError) {
         console.warn(`[${caller || 'cleanup'}] Error during ZXing Reader handling:`, resetError);
@@ -96,12 +96,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
 
 
-    // Reset state, but maybe keep error for display unless explicitly cleared elsewhere?
+    // Reset state
     setIsStarting(false);
     setIsActive(false);
     setIsScanning(false);
-    // Decide if error should be cleared here or handled by the calling context
-    // setError(null);
+    // setError(null); // Keep error potentially for display
     console.log(`[${caller || 'cleanup'}] State reset (isActive: false, isScanning: false).`);
   }, []); // No dependencies, uses refs
 
@@ -174,21 +173,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
         console.log("runScanLoop: Barcode detected:", result.getText());
         processingSuccessRef.current = true; // Set flag *immediately* to prevent further processing/loops
-        // Keep isScanning true visually for a moment, but stop the actual loop via processingSuccessRef
 
         const imageDataUri = captureFrame();
 
         if (imageDataUri) {
           console.log("runScanLoop: Frame captured, calling onScanSuccess.");
           onScanSuccess(imageDataUri); // Trigger the success callback with the captured frame
-          // Consider if automatic cleanup or manual stop is desired after success
-          // cleanupCamera("scan success"); // Option 1: Stop camera immediately after success
-          // Option 2: Keep camera running, maybe add a visual indicator of success?
 
-          // Example: Auto-stop after success (remove if continuous scanning is needed)
-          console.log("runScanLoop: Auto-stopping camera after successful scan.");
-          cleanupCamera("auto-stop after success");
-
+          // Cleanup happens implicitly because processingSuccessRef is true, stopping the loop.
+          // The parent component receiving onScanSuccess will typically handle the next steps,
+          // potentially restarting the scanner if needed.
+          console.log("runScanLoop: Scan successful. Loop will stop.");
 
         } else {
           // If frame capture fails *after* detection, it's a problem
@@ -230,8 +225,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     if (isActive && isScanning && !processingSuccessRef.current) {
       scanLoopRef.current = requestAnimationFrame(runScanLoop);
     } else {
-       // Ensure the ref is cleared if the loop logic decides not to request the next frame
-       // This prevents potential dangling requestAnimationFrame callbacks
        scanLoopRef.current = undefined;
        console.log("runScanLoop: Not requesting next frame.", { isActive, isScanning, processing: processingSuccessRef.current });
     }
@@ -251,9 +244,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     setIsScanning(false);
     processingSuccessRef.current = false;
 
-    // Ensure any previous instances are thoroughly cleaned up before starting a new one
+    // Ensure cleanup before starting
     cleanupCamera("startCamera preamble");
-    // Give a brief moment for resources to potentially release (heuristic)
     await new Promise(resolve => setTimeout(resolve, 100));
 
     try {
@@ -261,97 +253,72 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Camera access (getUserMedia) is not supported by this browser.');
       }
-      // Request camera stream
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: "environment", // Prefer rear camera
-          width: { ideal: 640 }, // Standard VGA width
-          height: { ideal: 480 } // Standard VGA height
-          // Using specific vertical resolutions can sometimes fail if not supported
-          // width: { ideal: 480 },
-          // height: { ideal: 640 }
+          facingMode: "environment",
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         },
-        audio: false, // No audio needed
+        audio: false,
       });
       console.log("startCamera: Stream obtained:", stream.id);
-      streamRef.current = stream; // Store the active stream
+      streamRef.current = stream;
 
       const video = videoRef.current;
       if (!video) {
-          // This should ideally not happen if the component is mounted
-          stream.getTracks().forEach(track => track.stop()); // Release stream if video element disappears
+          stream.getTracks().forEach(track => track.stop());
           throw new Error("Video element reference is not available.");
       }
 
-      // Attach the obtained stream to the video element
       video.srcObject = stream;
-
-      // Attempt to play the video stream
       await video.play();
       console.log("startCamera: Video playback initiated.");
 
-      // Initialize ZXing Reader *after* video starts playing
       const hints = new Map();
-      // Specify barcode formats if known (e.g., Code 128 common on IDs)
-      // hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE]);
-      // Reduce time between scans slightly? (default 500ms)
       readerRef.current = new BrowserMultiFormatReader(hints, 400);
       console.log("startCamera: ZXing Reader initialized.");
 
-
-      // Update state: Camera is active and scanning should begin
+      // Update state: Camera is active
       setIsActive(true);
-      setIsScanning(true);
-      processingSuccessRef.current = false; // Ensure flag is reset before loop starts
+      processingSuccessRef.current = false;
 
-      // Start the scanning loop
-      console.log("startCamera: Starting scan loop.");
-      if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current); // Clear any previous loop just in case
-      scanLoopRef.current = requestAnimationFrame(runScanLoop);
-
+      // Start scanning loop ONLY if autoStartScanLoop is true
+      if (autoStartScanLoop) {
+          console.log("startCamera: Starting scan loop (autoStartScanLoop=true).");
+          setIsScanning(true);
+          if (scanLoopRef.current) cancelAnimationFrame(scanLoopRef.current);
+          scanLoopRef.current = requestAnimationFrame(runScanLoop);
+      } else {
+          console.log("startCamera: Scan loop not started (autoStartScanLoop=false).");
+          setIsScanning(false); // Explicitly set scanning to false
+      }
 
     } catch (err: any) {
       console.error('startCamera: Error accessing or starting camera:', err);
       let message = `Could not access the camera. Error: ${err.name || 'UnknownError'} - ${err.message || 'No details available'}`;
-       // Provide more user-friendly messages for common errors
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
            message = 'Camera permission denied. Please allow access in your browser settings and reload the page.';
       } else if (['NotFoundError', 'DevicesNotFoundError'].includes(err.name)) {
            message = 'No camera found. Ensure it is connected, enabled, and not disabled by system settings.';
       } else if (['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError'].includes(err.name)) {
-           // This is often the "already in use" error
            message = 'Camera is already in use or could not be started. Please close other applications or browser tabs that might be using the camera and try again.';
       } else if (err.name === 'SecurityError') {
            message = 'Camera access denied due to security settings. This feature requires a secure connection (HTTPS).';
       } else if (err.message && err.message.includes('Invalid constraints')) {
            message = 'The requested camera settings (like resolution) are not supported by your device.';
       }
-
-
       setError(message);
       toast({ title: 'Camera Error', description: message, variant: 'destructive' });
       if (onScanError) onScanError(err instanceof Error ? err : new Error(message));
-      // Critical: Ensure cleanup happens even if start fails
       cleanupCamera("startCamera error handler");
     } finally {
-        // Mark the starting phase as complete, regardless of success or failure
         setIsStarting(false);
         console.log("startCamera: Finished start attempt.");
     }
-  }, [toast, onScanError, cleanupCamera, isStarting, isActive, runScanLoop]); // Dependencies
+  }, [toast, onScanError, cleanupCamera, isStarting, isActive, runScanLoop, autoStartScanLoop]); // Added autoStartScanLoop
 
-  // --- Manual Stop ---
-  const handleStopClick = () => {
-    console.log("Manual stop button clicked.");
-    const lastFrame = captureFrame(); // Capture frame *before* cleanup
-    cleanupCamera("manual stop");
-    setError(null); // Clear error when manually stopping
-
-    // Call the onManualStop callback with the captured frame
-    if (onManualStop) {
-      onManualStop(lastFrame);
-    }
-  };
+  // --- Manual Stop Removed ---
+  // const handleStopClick = () => { ... };
 
   // --- Video Element Error Handling ---
   useEffect(() => {
@@ -372,7 +339,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         }
         setError(message);
         toast({ title: "Video Playback Error", description: message, variant: "destructive" });
-        // Attempt cleanup if a video error occurs, as the stream might be broken
         cleanupCamera("video error event handler");
     };
 
@@ -380,14 +346,13 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       videoElement.addEventListener('error', handleError);
       console.log("Attached video error handler");
     }
-    // Cleanup function for the effect
     return () => {
       if (videoElement) {
         videoElement.removeEventListener('error', handleError);
         console.log("Removed video error handler");
       }
     };
-  }, [cleanupCamera, toast]); // Re-attach if cleanupCamera or toast changes
+  }, [cleanupCamera, toast]);
 
 
   return (
@@ -441,12 +406,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             </Button>
           )}
 
-           {/* Stop button (Conditional rendering based on onManualStop prop) */}
-           {isActive && !isStarting && onManualStop && ( // Only show if handler provided
-             <Button onClick={handleStopClick} variant="outline" disabled={isStarting} className="transition-subtle">
-               <Ban className="mr-2 h-4 w-4" /> Stop & Use This Frame
-             </Button>
-           )}
+           {/* Stop button removed */}
+           {/* {isActive && !isStarting && onManualStop && ( ... )} */}
       </div>
 
        {/* Error Display */}
