@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { BookOpenCheck, UserCog } from 'lucide-react';
+import { UserCog } from 'lucide-react'; // Removed BookOpenCheck
 
 export default function Home() {
   return (
@@ -11,17 +11,13 @@ export default function Home() {
           <CardTitle className="text-3xl font-bold text-primary">SmartLibTrack</CardTitle>
           <CardDescription>Library Entry & Exit Management</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <Link href="/admin/login" passHref>
+        <CardContent className="flex flex-col gap-4 items-center"> {/* Centering the button */}
+          <Link href="/admin/login" passHref className="w-full max-w-xs"> {/* Added max-width for consistency */}
             <Button variant="default" className="w-full transition-subtle">
               <UserCog className="mr-2" /> Admin Login
             </Button>
           </Link>
-          <Link href="/student/login" passHref>
-            <Button variant="outline" className="w-full transition-subtle">
-               <BookOpenCheck className="mr-2" /> Student Login/Register
-            </Button>
-          </Link>
+          {/* Student Login/Register button removed */}
         </CardContent>
       </Card>
       <footer className="mt-8 text-sm text-muted-foreground">
