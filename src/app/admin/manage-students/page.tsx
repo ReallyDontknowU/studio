@@ -14,6 +14,7 @@ import { Search, Edit, Trash2, UserX } from 'lucide-react';
 import type { Student } from '@/lib/types';
 import StudentForm, { StudentFormData } from '@/components/student-form'; // Import StudentForm
 import { BRANCHES } from '@/lib/constants'; // Import branches for form
+import { ScrollArea } from '@/components/ui/scroll-area'; // Import ScrollArea
 
 // Helper functions to manage students in localStorage (replace with API calls)
 const getStudents = (): Student[] => {
@@ -93,7 +94,7 @@ export default function AdminManageStudentsPage() {
     // TODO: Replace with API call
     const updatedStudents = students.map(student =>
       student.id === studentToEdit.id
-        ? { ...student, ...formData } // Update student data, keeping original createdAt and image URI
+        ? { ...studentToEdit, ...formData } // Update student data, keep original createdAt and image URI
         : student
     );
     saveStudents(updatedStudents);
@@ -130,7 +131,7 @@ export default function AdminManageStudentsPage() {
           </div>
 
           {/* Student Table */}
-          <div className="border rounded-md overflow-hidden">
+          <div className="border rounded-md overflow-x-auto"> {/* Ensure horizontal scroll on small screens */}
             <Table>
               <TableCaption>A list of registered students.</TableCaption>
               <TableHeader>
@@ -147,12 +148,12 @@ export default function AdminManageStudentsPage() {
                 {filteredStudents.length > 0 ? (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id}>
-                      <TableCell className="font-medium">{student.id.toUpperCase()}</TableCell>
-                      <TableCell>{student.name}</TableCell>
+                      <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
+                      <TableCell className="whitespace-nowrap">{student.name}</TableCell>
                       <TableCell>{student.branch}</TableCell>
                       <TableCell>{student.rollNo}</TableCell>
                       <TableCell>{student.yearOfStudy}</TableCell>
-                      <TableCell className="text-right space-x-2">
+                      <TableCell className="text-right space-x-2 whitespace-nowrap">
                         <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
                              <Edit className="h-4 w-4" />
                          </Button>
@@ -194,26 +195,31 @@ export default function AdminManageStudentsPage() {
 
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[600px]">
-                    <DialogHeader>
+                {/* Adjusted DialogContent for scrolling */}
+                <DialogContent className="sm:max-w-[600px] grid-rows-[auto_minmax(0,1fr)] max-h-[90vh] p-0">
+                    <DialogHeader className="p-6 pb-0">
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details below. Click save when you're done.
                         </DialogDescription>
                     </DialogHeader>
-                    {studentToEdit && (
-                        <StudentForm
-                           key={studentToEdit.id} // Force re-render when student changes
-                           onSubmit={handleEditSubmit}
-                           defaultValues={studentToEdit} // Pass the full student object
-                           isLoading={isLoading}
-                           submitButtonText={isLoading ? 'Saving...' : 'Save Changes'}
-                           formTitle="" // Hide inner title/desc
-                           formDescription=""
-                           availableBranches={BRANCHES} // Or fetch dynamically if needed
-                        />
-                    )}
-                    {/* Footer is handled by StudentForm */}
+                    {/* ScrollArea wraps the form */}
+                    <ScrollArea className="overflow-y-auto px-6">
+                       {studentToEdit && (
+                           <StudentForm
+                              // Removed key prop unless absolutely necessary for specific reset behavior
+                              onSubmit={handleEditSubmit}
+                              defaultValues={studentToEdit} // Pass the full student object
+                              isLoading={isLoading}
+                              submitButtonText={isLoading ? 'Saving...' : 'Save Changes'}
+                              formTitle="" // Hide inner title/desc
+                              formDescription=""
+                              availableBranches={BRANCHES} // Or fetch dynamically if needed
+                              // Add padding-bottom inside the form's card/container if needed so last field isn't cut off by footer
+                           />
+                       )}
+                    </ScrollArea>
+                    {/* Footer can remain outside ScrollArea if handled by Dialog, but StudentForm includes it */}
                  </DialogContent>
              </Dialog>
 

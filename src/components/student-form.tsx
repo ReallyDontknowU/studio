@@ -1,3 +1,4 @@
+
 'use client';
 
 import React from 'react';
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'; // Keep Card for structure
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import type { Student, Branch, YearOfStudy } from '@/lib/types';
 import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants'; // Assuming constants are defined
@@ -52,22 +53,40 @@ const StudentForm: React.FC<StudentFormProps> = ({
       rollNo: defaultValues?.rollNo || '',
       yearOfStudy: defaultValues?.yearOfStudy, // Needs to be one of the enum values or undefined
     },
+    // Reset form state when defaultValues change if needed (e.g., when editing a different student)
+    // Consider adding: mode: 'onChange', reValidateMode: 'onChange' for more reactive validation
   });
+
+   // Watch for changes in defaultValues to reset the form if the student being edited changes
+   React.useEffect(() => {
+       form.reset({
+           id: defaultValues?.id || '',
+           name: defaultValues?.name || '',
+           branch: defaultValues?.branch || '',
+           rollNo: defaultValues?.rollNo || '',
+           yearOfStudy: defaultValues?.yearOfStudy,
+       });
+   }, [defaultValues, form]); // Add form to dependencies
+
 
   const handleFormSubmit = (data: StudentFormData) => {
     onSubmit(data);
-    // Optionally reset form after submission: form.reset();
+    // Optionally reset form after submission: form.reset(); // Keep commented unless intended
   };
 
   return (
-    <Card className="w-full max-w-lg shadow-lg">
-       <CardHeader>
-          <CardTitle className="text-primary">{formTitle}</CardTitle>
-          {formDescription && <CardDescription>{formDescription}</CardDescription>}
-       </CardHeader>
+    // Re-introduce Card for consistent styling, remove shadow if it's inside a Dialog
+    <Card className="w-full max-w-lg border-0 shadow-none">
+       {(formTitle || formDescription) && ( // Conditionally render header if title/desc provided
+          <CardHeader className="pt-0 px-1"> {/* Adjust padding if needed */}
+             {formTitle && <CardTitle className="text-primary">{formTitle}</CardTitle>}
+             {formDescription && <CardDescription>{formDescription}</CardDescription>}
+          </CardHeader>
+       )}
        <Form {...form}>
           <form onSubmit={form.handleSubmit(handleFormSubmit)}>
-             <CardContent className="space-y-4">
+             {/* Add pb-6 (or similar) to ensure space below last field for scrolling */}
+             <CardContent className="space-y-4 px-1 pb-6">
                 <FormField
                   control={form.control}
                   name="id"
@@ -113,7 +132,7 @@ const StudentForm: React.FC<StudentFormProps> = ({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Branch</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={isLoading}> {/* Use value prop */}
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select branch" />
@@ -139,7 +158,7 @@ const StudentForm: React.FC<StudentFormProps> = ({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Year of Study</FormLabel>
-                       <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading}>
+                       <Select onValueChange={field.onChange} value={field.value} disabled={isLoading}> {/* Use value prop */}
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select year" />
@@ -158,7 +177,8 @@ const StudentForm: React.FC<StudentFormProps> = ({
                   )}
                 />
              </CardContent>
-             <CardFooter>
+             {/* Footer remains part of the form */}
+             <CardFooter className="px-1 pt-0">
                 <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
                    {isLoading ? 'Saving...' : submitButtonText}
                 </Button>
