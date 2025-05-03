@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { X } from 'lucide-react'; // Import X icon
 
 // Icons
-import { Loader2, Upload, Info, Camera } from 'lucide-react';
+import { Loader2, Upload, Info, Camera, RefreshCw } from 'lucide-react'; // Added RefreshCw
 
 // Helper to map string year to enum type
 const mapYearOfStudy = (yearStr?: string): YearOfStudy | undefined => {
@@ -77,10 +77,14 @@ export default function AdminAddStudentPage() {
     }, [extractedData]);
 
 
-  // Reset state when switching tabs
+  // Reset state when switching tabs, but preserve image if moving to 'manual'
   const handleTabChange = (value: string) => {
       setActiveTab(value);
-      setCapturedImageUri(null);
+      // Only reset image if NOT switching TO the manual tab from scan/upload
+      if (value !== 'manual') {
+          setCapturedImageUri(null);
+      }
+      // Reset other things regardless
       setExtractedData(null);
       setExtractionError(null);
       setIsExtracting(false);
@@ -420,7 +424,7 @@ export default function AdminAddStudentPage() {
                                 isLoading={isSubmitting}
                                 submitButtonText={isSubmitting ? 'Adding...' : 'Add Student'}
                                 formTitle="Student Details"
-                                formDescription={extractedData ? "Verify extracted information and complete any missing fields." : "Enter student details manually."}
+                                formDescription={capturedImageUri ? "Verify extracted information and complete any missing fields." : "Enter student details manually."} // Adjusted description based on whether an image was processed
                            />
                        </div>
                     )}
@@ -432,4 +436,5 @@ export default function AdminAddStudentPage() {
     </div>
   );
 }
+
 
