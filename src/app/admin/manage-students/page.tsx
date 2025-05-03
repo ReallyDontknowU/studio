@@ -156,16 +156,8 @@ export default function AdminManageStudentsPage() {
      const updatedStudentData: Student = {
         ...studentToEdit, // Keep original createdAt etc.
         ...formData, // Apply form data changes
-        // Update image URI only if a new one was captured/uploaded during edit
-        // AND if the ID has NOT changed. If ID changed, the URI should be updated regardless.
-        // OR if the ID changed AND a new image was captured.
-        idCardImageUri: (formData.id !== studentToEdit.id && editModeCapturedImageUri) // ID changed AND new image exists
-                       ? editModeCapturedImageUri // Use new image for new ID
-                       : (editModeCapturedImageUri && editModeCapturedImageUri !== studentToEdit.idCardImageUri) // New image captured/uploaded for same ID
-                         ? editModeCapturedImageUri // Use the new image
-                         : (formData.id === studentToEdit.id) // ID did not change
-                           ? studentToEdit.idCardImageUri // Keep original image if ID is same and no new image
-                           : undefined, // ID changed but no new image was uploaded, so clear it (or handle differently?)
+        // Update image URI based on whether a new image was captured/uploaded during edit
+        idCardImageUri: editModeCapturedImageUri || undefined, // Use the image URI from the edit state
      };
 
     // Rename image logic (placeholder - adjust based on actual storage)
@@ -193,7 +185,8 @@ export default function AdminManageStudentsPage() {
 
    const processEditImage = useCallback(async (imageDataUri: string | null) => {
      if (!imageDataUri) {
-       setEditModeCapturedImageUri(studentToEdit?.idCardImageUri || null); // Revert to original if capture stopped/failed
+       // Keep the potentially existing editModeCapturedImageUri if stop occurred without capture
+       // setEditModeCapturedImageUri(studentToEdit?.idCardImageUri || null); // Revert to original if capture stopped/failed? Or keep new if already set? Let's keep the new one if set.
        setEditModeExtractionError("No image captured or selected.");
        setIsEditModeScanning(false);
        setIsEditModeUploading(false);
@@ -201,7 +194,8 @@ export default function AdminManageStudentsPage() {
        return;
      }
 
-     setEditModeCapturedImageUri(imageDataUri); // Show the new image immediately
+     // Image URI is already set in state by scanner/upload handler via setEditModeCapturedImageUri
+     // setEditModeCapturedImageUri(imageDataUri); // No need to set it again
      setEditModeExtractionError(null);
      setIsEditModeExtracting(true); // Start AI processing indicator
      setIsEditModeScanning(false); // Ensure scanner state is off
@@ -235,15 +229,15 @@ export default function AdminManageStudentsPage() {
      }
    }, [studentToEdit, toast]); // Dependencies
 
-   const handleEditScanSuccess = (imageDataUri: string) => {
-     setIsEditModeScanning(false); // Turn off scanner view
-     processEditImage(imageDataUri);
-   };
+   // Scanner doesn't call this directly, relies on onManualStop
+   // const handleEditScanSuccess = (imageDataUri: string) => {
+   // };
 
-   const handleEditManualStop = (imageDataUri: string | null) => {
+   const handleEditManualStop = useCallback((imageDataUri: string | null) => {
      setIsEditModeScanning(false); // Turn off scanner view
+     // Image URI is already set by the scanner component via setEditModeCapturedImageUri
      processEditImage(imageDataUri); // Process the (potentially null) captured frame
-   };
+   }, [processEditImage]); // Depend on processEditImage
 
     const handleEditFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -253,6 +247,7 @@ export default function AdminManageStudentsPage() {
             const reader = new FileReader();
             reader.onloadend = () => {
                 if (typeof reader.result === 'string') {
+                    setEditModeCapturedImageUri(reader.result); // Set the URI from upload
                     processEditImage(reader.result); // Process the uploaded image
                 } else {
                     setEditModeExtractionError("Failed to read uploaded file.");
@@ -393,7 +388,7 @@ export default function AdminManageStudentsPage() {
                                            // Show Scanner when scanning
                                            <div className="flex flex-col items-center">
                                                <BarcodeScanner
-                                                   onScanSuccess={handleEditScanSuccess}
+                                                   onScanSuccess={() => {}} // Not used, relies on onManualStop
                                                    onScanError={(err) => {
                                                        setEditModeExtractionError(`Scanner error: ${err.message}`);
                                                        setIsEditModeScanning(false);
@@ -401,16 +396,11 @@ export default function AdminManageStudentsPage() {
                                                    onManualStop={handleEditManualStop}
                                                    scanPrompt="Position ID card..."
                                                    disabled={isEditModeExtracting}
-                                                   setCapturedImageUri={setEditModeCapturedImageUri} // Pass the setter
+                                                   setCapturedImageUri={setEditModeCapturedImageUri} // Pass the setter correctly
                                                />
                                                 {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
-                                                {/* Button to manually stop scanning */}
-                                                 <Button onClick={() => {
-                                                    setIsEditModeScanning(false);
-                                                    handleEditManualStop(null); // Indicate manual stop without frame
-                                                 }} variant="outline" size="sm" className="mt-2">
-                                                     <X className="mr-1 h-3 w-3"/> Stop Scan
-                                                 </Button>
+                                                {/* Button to manually stop scanning - Handled by scanner component now */}
+                                                {/* Removed manual stop button here */}
                                            </div>
                                        ) : (
                                             // Show Image or Placeholder

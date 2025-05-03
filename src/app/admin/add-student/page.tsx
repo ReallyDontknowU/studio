@@ -19,10 +19,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { X } from 'lucide-react'; // Import X icon
+import { X, RefreshCw } from 'lucide-react'; // Import X and RefreshCw icons
 
 // Icons
-import { Loader2, Upload, Info, Camera, RefreshCw } from 'lucide-react'; // Added RefreshCw
+import { Loader2, Upload, Info, Camera } from 'lucide-react';
 
 // Helper to map string year to enum type
 const mapYearOfStudy = (yearStr?: string): YearOfStudy | undefined => {
@@ -94,7 +94,7 @@ export default function AdminAddStudentPage() {
   const processImage = useCallback(async (imageDataUri: string | null) => { // Allow null for manual stop
     if (!imageDataUri) {
         console.log("Manual stop without valid frame capture.");
-        setCapturedImageUri(null); // No image to show
+        // setCapturedImageUri(null); // Keep image if already captured previously
         setExtractedData({}); // Trigger form display for purely manual entry
         setExtractionError("No image captured. Please enter details manually or try scanning/uploading again.");
         setActiveTab('manual'); // Switch to manual tab
@@ -107,7 +107,8 @@ export default function AdminAddStudentPage() {
     }
 
     console.log("Processing image:", imageDataUri.substring(0, 50) + "...");
-    setCapturedImageUri(imageDataUri); // Store the image URI for display and submission
+    // Keep the captured image URI in state, already set by the scanner callback
+    // setCapturedImageUri(imageDataUri); // No need to set it again here
     setExtractedData(null); // Clear previous extraction
     setExtractionError(null);
     setIsExtracting(true);
@@ -172,17 +173,17 @@ export default function AdminAddStudentPage() {
   }, [toast]);
 
 
-  const handleScanSuccess = (imageDataUri: string) => {
-     // This might not be called if using manual stop as the primary trigger
-    console.log("Scan Success (DEPRECATED PATH?) - received image data.");
-    // processImage(imageDataUri); // Should be triggered by onManualStop now
-  };
+  // Scanner doesn't call this directly anymore, onManualStop is used.
+  // const handleScanSuccess = (imageDataUri: string) => {
+  // };
 
    // Handler for manual stop in scanner - THIS IS THE PRIMARY TRIGGER
-   const handleManualStop = (imageDataUri: string | null) => {
+   // Receives the image URI from the scanner component
+   const handleManualStop = useCallback((imageDataUri: string | null) => {
     console.log("Manual Stop - received image data (or null):", imageDataUri ? imageDataUri.substring(0, 50) + "..." : null);
+    // The image URI is already set in the state by the scanner's setCapturedImageUri prop
     processImage(imageDataUri); // Process the captured frame (or null)
-   };
+   }, [processImage]); // Depend on processImage
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -191,6 +192,7 @@ export default function AdminAddStudentPage() {
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           console.log("File Read Success - processing image.");
+          setCapturedImageUri(reader.result); // Set image URI from upload
           processImage(reader.result);
         } else {
            setExtractionError("Failed to read the uploaded file.");
@@ -314,7 +316,7 @@ export default function AdminAddStudentPage() {
                         onManualStop={handleManualStop} // Pass the manual stop handler (triggers processing)
                         scanPrompt="Position ID card inside the frame"
                         disabled={isExtracting || isSubmitting}
-                        setCapturedImageUri={setCapturedImageUri} // Pass the setter function
+                        setCapturedImageUri={setCapturedImageUri} // Pass the state setter correctly
                     />
                     {isExtracting && (
                         <div className="flex items-center justify-center gap-2 text-muted-foreground mt-4">
@@ -436,5 +438,3 @@ export default function AdminAddStudentPage() {
     </div>
   );
 }
-
-

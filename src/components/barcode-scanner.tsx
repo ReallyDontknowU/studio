@@ -4,7 +4,7 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, SwitchCamera } from 'lucide-react'; // Added SwitchCamera
+import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, SwitchCamera, X } from 'lucide-react'; // Added SwitchCamera, X
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Image from 'next/image';
@@ -152,23 +152,19 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     setIsActive(false);
     setIsStarting(false);
     setIsSwitchingCamera(false); // Ensure switching state is reset
-    setInternalCapturedImageUri(null);
+    setInternalCapturedImageUri(null); // Clear internal preview
 
-    // Always attempt to clear the image URI using the passed setter
-    if (typeof setCapturedImageUri === 'function') {
-        try {
-            setCapturedImageUri(null);
-            console.log(`${logPrefix} Called setCapturedImageUri(null).`);
-        } catch (e) {
-            console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
-        }
-    } else {
-         console.warn(`${logPrefix} setCapturedImageUri prop is not a function during cleanup.`);
-    }
+    // **REMOVED**: Do not clear parent state from within cleanup.
+    // try {
+    //     setCapturedImageUri(null);
+    //     console.log(`${logPrefix} Called setCapturedImageUri(null).`);
+    // } catch (e) {
+    //     console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
+    // }
 
 
     console.log(`${logPrefix} Cleanup finished.`);
-  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]); // Add setCapturedImageUri dependency
+  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay]); // Removed setCapturedImageUri dependency
 
 
   // --- Frame Capture ---
@@ -217,8 +213,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     console.log(`${logPrefix} Manual stop requested.`);
 
     const lastFrameUri = captureFrame(); // Try to capture one last frame
-    setInternalCapturedImageUri(lastFrameUri);
+    setInternalCapturedImageUri(lastFrameUri); // Update internal preview
 
+    // Update parent state with the captured image URI
     if (typeof setCapturedImageUri === 'function') {
         try {
            setCapturedImageUri(lastFrameUri);
@@ -229,18 +226,21 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         }
     } else {
          console.warn(`${logPrefix} setCapturedImageUri prop is not a function during stop.`);
+         setError("Internal component error: Missing setCapturedImageUri function.");
     }
 
 
-    cleanupCamera("manual stop");
+    cleanupCamera("manual stop"); // Stop the camera stream
 
+    // Call the parent handler with the captured URI (or null)
     if (onManualStop) {
       console.log(`${logPrefix} Calling onManualStop with image URI (or null):`, lastFrameUri ? 'Yes' : 'No');
       onManualStop(lastFrameUri);
     } else {
        console.warn(`${logPrefix} onManualStop handler not provided.`);
     }
-  }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri]);
+  }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri]); // Added setCapturedImageUri
+
 
   // --- Enumerate Devices ---
   const enumerateDevices = useCallback(async () => {
@@ -296,12 +296,14 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       console.warn(`${logPrefix} Aborted - already starting or active.`);
       return;
     }
-    if (!setCapturedImageUri || typeof setCapturedImageUri !== 'function') {
+     // Ensure setCapturedImageUri is a function before proceeding
+    if (typeof setCapturedImageUri !== 'function') {
       console.error(`${logPrefix} Aborted - setCapturedImageUri prop is not a function.`);
       setError("Internal component error: State update function missing.");
-      setIsStarting(false);
-      return;
+      setIsStarting(false); // Reset starting state
+      return; // Critical error, cannot proceed
     }
+
 
     setError(null);
     setHasCameraPermission(null);
@@ -310,7 +312,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     setInternalCapturedImageUri(null);
 
     try {
-      setCapturedImageUri(null);
+      setCapturedImageUri(null); // Clear parent image state on start
     } catch (e) {
       console.error(`${logPrefix} Error calling setCapturedImageUri during start:`, e);
       setError("Internal component error: Failed to clear image state.");
@@ -321,7 +323,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     console.log(`${logPrefix} Performing pre-start cleanup.`);
     cleanupCamera("startCamera preamble");
     // Short delay to ensure cleanup completes before requesting stream again
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 150)); // Slightly increased delay
 
 
     const video = videoRef.current;
@@ -450,7 +452,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       // or the error handler + cleanupCamera on failure.
       console.log(`${logPrefix} Finished start attempt. State:`, { isStarting, isActive, error });
     }
-  }, [selectedDeviceId, isStarting, isActive, setCapturedImageUri, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay]); // Add selectedDeviceId
+  }, [selectedDeviceId, isStarting, isActive, setCapturedImageUri, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay]); // Add selectedDeviceId and setCapturedImageUri
 
 
   // Effect to enumerate devices on mount and when permission might change
@@ -519,6 +521,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [selectedDeviceId, isActive, isSwitchingCamera, isStarting, startCamera, cleanupCamera]);
 
 
+  // Function to clear errors
+  const clearError = () => setError(null);
+
+
   return (
     <div className={`flex flex-col items-center gap-4 w-full max-w-xs ${disabled && !isStarting ? 'opacity-50 pointer-events-none' : ''}`}>
 
@@ -584,11 +590,16 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         {hasCameraPermission === false && !isStarting && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
                 <Alert variant="destructive" className="w-full max-w-xs">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Camera Access Denied</AlertTitle>
-                    <AlertDescription>
-                        Please allow camera access in your browser settings and refresh the page.
-                    </AlertDescription>
+                   <div className="flex justify-between items-start">
+                       <div>
+                            <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
+                            <AlertTitle className="inline-block">Camera Access Denied</AlertTitle>
+                            <AlertDescription>
+                                Please allow camera access in your browser settings and refresh the page.
+                            </AlertDescription>
+                        </div>
+                        {/* Add a close button if needed, or rely on browser/page actions */}
+                    </div>
                 </Alert>
             </div>
         )}
@@ -596,9 +607,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         {error && !isStarting && !isSwitchingCamera && ( // Show error only when not starting/switching
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
                 <Alert variant="destructive" className="w-full max-w-xs">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Scanner Error</AlertTitle>
-                    <AlertDescription>{error}</AlertDescription>
+                   <div className="flex justify-between items-start">
+                       <div>
+                            <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
+                            <AlertTitle className="inline-block">Scanner Error</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:bg-destructive/10" onClick={clearError}>
+                           <X className="h-4 w-4" />
+                           <span className="sr-only">Clear Error</span>
+                        </Button>
+                    </div>
                     <Button onClick={handleInitialStartClick} variant="secondary" size="sm" className="mt-2 text-xs" disabled={isStarting}>
                         <RefreshCw className="mr-1 h-3 w-3" /> Try Again
                     </Button>
@@ -632,7 +651,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             <Camera className="mr-2 h-4 w-4" /> Start Camera
           </Button>
         ) :
-        isActive && !isStarting && !isSwitchingCamera? (
+        isActive && !isStarting && !isSwitchingCamera ? (
            // Show ONLY the "Stop Scanning" button if active and the handler is provided
             onManualStop && (
                <Button onClick={handleStopClick} variant="destructive" disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
@@ -647,4 +666,3 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 };
 
 export default BarcodeScanner;
-
