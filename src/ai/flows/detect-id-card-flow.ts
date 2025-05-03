@@ -30,6 +30,8 @@ export async function detectIdCard(input: DetectIdCardInput): Promise<DetectIdCa
 
 const detectIdCardPrompt = ai.definePrompt({
   name: 'detectIdCardPrompt',
+  // Use the default model configured in ai-instance (Gemini Flash), as it supports multimodal input
+  // Specifying a model here like 'groq/llama...' would likely fail due to lack of image support
   input: {
     schema: DetectIdCardInputSchema,
   },
@@ -62,6 +64,7 @@ const detectIdCardFlow = ai.defineFlow<
   },
   async input => {
     try {
+        // This prompt call will use the default model (Gemini Flash) configured in ai-instance.ts
         const { output } = await detectIdCardPrompt(input);
         console.log("DetectIdCard Flow Output:", output);
         // Ensure the output matches the schema, defaulting to false if unexpected
