@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -8,7 +7,7 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, Upload } from 'lucide-react'; // Added Loader2, Upload
+import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send } from 'lucide-react'; // Added Send for manual entry
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -60,7 +59,7 @@ const saveEntryLog = (log: EntryLog): void => {
   // TODO: Also save to Excel/SQLite
 };
 
-// Simplified image comparison (for demonstration)
+// Simplified image comparison (for demonstration) - Still needed for scan feature
 const compareImagesRoughly = (imageUri1?: string, imageUri2?: string): boolean | undefined => {
   const logPrefix = "[compareImages]";
   if (!imageUri1 || !imageUri2) {
@@ -90,42 +89,170 @@ const compareImagesRoughly = (imageUri1?: string, imageUri2?: string): boolean |
 
 export default function AdminScanPage() {
   const { toast } = useToast();
-  const [isProcessingScan, setIsProcessingScan] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // Generic processing state
   const [scanSessionError, setScanSessionError] = useState<string | null>(null);
-  // Initialize state with correct type definition
    const [lastScanResult, setLastScanResult] = useState<{
         student: Partial<Student>;
         log: Partial<EntryLog> & { type: EntryType | 'Error'; message?: string }; // Explicitly add message for error type
-        scannedImageUri?: string;
-        imageMatch?: boolean;
+        scannedImageUri?: string; // Keep for scan results
+        imageMatch?: boolean; // Keep for scan results
+        source: 'scan' | 'manual'; // Track source of the result
     } | null>(null);
 
 
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null); // For storing single captured image
   const [isScannerActive, setIsScannerActive] = useState(false); // Track if scanner component should be visible/active
   const [isExtracting, setIsExtracting] = useState(false); // Track AI barcode extraction
+  const [manualStudentId, setManualStudentId] = useState(''); // State for manual ID input
 
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+  const sharedProcessLogic = useCallback(async (studentId: string, source: 'scan' | 'manual', scannedImageUri?: string) => {
+        const logPrefix = `[sharedProcessLogic-${source}]`;
+        console.log(`${logPrefix} Processing ID: ${studentId}`);
+        setIsProcessing(true);
+        setScanSessionError(null);
+        setLastScanResult(null); // Clear previous result
+
+        let student: Student | null = null;
+        let imageMatchResult: boolean | undefined = undefined;
+        const now = new Date();
+        let processSuccessful = false;
+        let resultState: typeof lastScanResult = null;
+
+        try {
+            student = getStudentById(studentId);
+            console.log(`${logPrefix} Student lookup:`, student ? student.name : 'Not Found');
+            if (!student) {
+                throw new Error(`Student with ID ${studentId.toUpperCase()} not found. Please register first.`);
+            }
+
+            // Image comparison only relevant for 'scan' source
+            if (source === 'scan' && scannedImageUri) {
+                if (student.idCardImageUri) {
+                    imageMatchResult = compareImagesRoughly(student.idCardImageUri, scannedImageUri);
+                    console.log(`${logPrefix} Image comparison for ${student.name}: ${imageMatchResult}`);
+                    if (imageMatchResult === false) {
+                        toast({
+                            title: "Image Mismatch Warning",
+                            description: `Scanned ID image may differ from the registered image for ${student.name}. Please verify student identity.`,
+                            variant: "destructive", duration: 7000,
+                        });
+                    } else if (imageMatchResult === true) {
+                        console.log(`${logPrefix} Image match confirmed for ${student.name}.`);
+                    } else {
+                        console.log(`${logPrefix} Image comparison inconclusive for ${student.name}.`);
+                        toast({
+                            title: "Info: Image Comparison",
+                            description: `Could not reliably compare scanned image with stored image for ${student.name}.`,
+                            variant: "default", duration: 4000,
+                        });
+                    }
+                } else {
+                    console.log(`${logPrefix} No registered ID card image found for ${student.name}.`);
+                    imageMatchResult = undefined;
+                    toast({
+                        title: "Info: No Registered Image",
+                        description: `No ID image on file for ${student.name} to compare against. Consider updating student record.`,
+                        variant: "default", duration: 5000,
+                    });
+                }
+            }
+
+            // Determine Entry/Exit and check rate limit
+            const lastLog = getLastLogForStudent(studentId);
+            let currentAction: EntryType = 'Entry';
+
+            if (lastLog) {
+                const timeDiffSeconds = (now.getTime() - lastLog.timestamp.getTime()) / 1000;
+                console.log(`${logPrefix} Last log for ${student.name}: Type ${lastLog.type}, Time diff: ${timeDiffSeconds.toFixed(1)}s`);
+
+                if (timeDiffSeconds < MIN_LIBRARY_INTERVAL_SECONDS) {
+                    throw new Error(`Please wait ${Math.ceil(MIN_LIBRARY_INTERVAL_SECONDS - timeDiffSeconds)}s before processing ${student.name} again.`);
+                }
+                currentAction = lastLog.type === 'Entry' ? 'Exit' : 'Entry';
+            } else {
+                console.log(`${logPrefix} No previous log found for ${student.name}. Defaulting to Entry.`);
+            }
+
+            // Create and Save Log
+            const newLog: EntryLog = {
+                id: `log_${now.getTime()}_${student.id}`,
+                studentId: student.id,
+                studentName: student.name,
+                branch: student.branch,
+                timestamp: now,
+                type: currentAction,
+            };
+            console.log(`${logPrefix} Saving new log:`, newLog);
+            saveEntryLog(newLog);
+            processSuccessful = true;
+
+            // Display Success Result
+            resultState = {
+                student,
+                log: newLog,
+                scannedImageUri: source === 'scan' ? scannedImageUri : undefined, // Only include image for scan
+                imageMatch: source === 'scan' ? imageMatchResult : undefined, // Only include match for scan
+                source
+            };
+            toast({
+                title: `${currentAction} Recorded`,
+                description: `${student.name} (${student.id.toUpperCase()}) recorded as ${currentAction.toLowerCase()} at ${format(now, 'Pp')}.`,
+                variant: 'default',
+            });
+            console.log(`${logPrefix} Success - ${student.name} recorded as ${currentAction}.`);
+
+        } catch (error: any) {
+            console.error(`${logPrefix} Error processing:`, error);
+            const errorMessage = error.message || 'An unknown error occurred during processing.';
+            toast({
+                title: 'Processing Error',
+                description: errorMessage,
+                variant: 'destructive',
+            });
+
+            let errorStudentData: Partial<Student> = { id: studentId.toUpperCase() || "Unknown", name: "Unknown" };
+            if (student) {
+                errorStudentData = student;
+            } else if (studentId) {
+                errorStudentData = { id: studentId.toUpperCase(), name: "Not Registered" };
+            }
+
+            resultState = {
+                student: errorStudentData,
+                log: { type: 'Error', timestamp: now, message: errorMessage },
+                scannedImageUri: source === 'scan' ? scannedImageUri : undefined,
+                imageMatch: source === 'scan' ? imageMatchResult : undefined,
+                source
+            };
+            processSuccessful = false;
+
+        } finally {
+            console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
+            setLastScanResult(resultState); // Set the final result (success or error)
+            setIsProcessing(false);
+            setIsExtracting(false); // Ensure extraction state is reset
+            if (source === 'manual') {
+                setManualStudentId(''); // Clear manual input on finish
+            }
+            // Keep scanner active only if using auto-capture loop, otherwise deactivate:
+            // setIsScannerActive(false); // Deactivate after processing manual capture.
+        }
+  }, [toast]);
 
 
+  // Handles image captured from scanner
   const processCapturedImage = useCallback(async (imageDataUri: string) => {
     const logPrefix = "[processCapturedImage]";
-    if (isProcessingScan) {
-      console.log(`${logPrefix} Already processing a scan, skipping.`);
+    if (isProcessing) {
+      console.log(`${logPrefix} Already processing, skipping.`);
       return;
     }
 
     console.log(`${logPrefix} Initiated with image data (length: ${imageDataUri.length})`);
-    setIsProcessingScan(true);
+    setIsProcessing(true); // Use generic processing state
     setIsExtracting(true); // Start extraction indicator
     setScanSessionError(null);
     setLastScanResult(null); // Clear previous result
-
-    let extractedId: string | null = null;
-    let student: Student | null = null;
-    let imageMatchResult: boolean | undefined = undefined;
-    const now = new Date();
-    let processSuccessful = false;
 
     try {
       console.log(`${logPrefix} Calling extractBarcodeData...`);
@@ -137,115 +264,30 @@ export default function AdminScanPage() {
         throw new Error("Could not extract a valid ID number from the barcode image.");
       }
 
-      extractedId = extractionResult.idNumber.trim().toLowerCase();
-      console.log(`${logPrefix} Extracted ID: ${extractedId}`);
-
-      student = getStudentById(extractedId);
-      console.log(`${logPrefix} Student lookup:`, student ? student.name : 'Not Found');
-      if (!student) {
-        throw new Error(`Student with ID ${extractedId.toUpperCase()} not found. Please register first.`);
-      }
-
-      // Image comparison
-      if (student.idCardImageUri) {
-        imageMatchResult = compareImagesRoughly(student.idCardImageUri, imageDataUri);
-        console.log(`${logPrefix} Image comparison for ${student.name}: ${imageMatchResult}`);
-        if (imageMatchResult === false) {
-          toast({
-            title: "Image Mismatch Warning",
-            description: `Scanned ID image may differ from the registered image for ${student.name}. Please verify student identity.`,
-            variant: "destructive", duration: 7000,
-          });
-        } else if (imageMatchResult === true) {
-          console.log(`${logPrefix} Image match confirmed for ${student.name}.`);
-        } else {
-          console.log(`${logPrefix} Image comparison inconclusive for ${student.name}.`);
-          toast({
-            title: "Info: Image Comparison",
-            description: `Could not reliably compare scanned image with stored image for ${student.name}.`,
-            variant: "default", duration: 4000,
-          });
-        }
-      } else {
-        console.log(`${logPrefix} No registered ID card image found for ${student.name}.`);
-        imageMatchResult = undefined;
-        toast({
-          title: "Info: No Registered Image",
-          description: `No ID image on file for ${student.name} to compare against. Consider updating student record.`,
-          variant: "default", duration: 5000,
-        });
-      }
-
-      // Determine Entry/Exit and check rate limit
-      const lastLog = getLastLogForStudent(extractedId);
-      let currentAction: EntryType = 'Entry';
-
-      if (lastLog) {
-        const timeDiffSeconds = (now.getTime() - lastLog.timestamp.getTime()) / 1000;
-        console.log(`${logPrefix} Last log for ${student.name}: Type ${lastLog.type}, Time diff: ${timeDiffSeconds.toFixed(1)}s`);
-
-        if (timeDiffSeconds < MIN_LIBRARY_INTERVAL_SECONDS) {
-          throw new Error(`Please wait ${Math.ceil(MIN_LIBRARY_INTERVAL_SECONDS - timeDiffSeconds)}s before scanning ${student.name} again.`);
-        }
-        currentAction = lastLog.type === 'Entry' ? 'Exit' : 'Entry';
-      } else {
-        console.log(`${logPrefix} No previous log found for ${student.name}. Defaulting to Entry.`);
-      }
-
-      // Create and Save Log
-      const newLog: EntryLog = {
-        id: `log_${now.getTime()}_${student.id}`,
-        studentId: student.id,
-        studentName: student.name,
-        branch: student.branch,
-        timestamp: now,
-        type: currentAction,
-      };
-      console.log(`${logPrefix} Saving new log:`, newLog);
-      saveEntryLog(newLog);
-      processSuccessful = true;
-
-      // Display Success Result
-      setLastScanResult({ student, log: newLog, scannedImageUri: imageDataUri, imageMatch: imageMatchResult });
-      toast({
-        title: `${currentAction} Recorded`,
-        description: `${student.name} (${student.id.toUpperCase()}) recorded as ${currentAction.toLowerCase()} at ${format(now, 'Pp')}.`,
-        variant: 'default',
-      });
-      console.log(`${logPrefix} Success - ${student.name} recorded as ${currentAction}.`);
+      const extractedId = extractionResult.idNumber.trim().toLowerCase();
+      await sharedProcessLogic(extractedId, 'scan', imageDataUri); // Use shared logic
 
     } catch (error: any) {
-      console.error(`${logPrefix} Error processing scan:`, error);
-      const errorMessage = error.message || 'An unknown error occurred during processing.';
+      // Handle extraction-specific errors or re-throw for sharedProcessLogic to handle
+      console.error(`${logPrefix} Error during extraction:`, error);
+      const errorMessage = error.message || 'An unknown error occurred during barcode extraction.';
       toast({
-        title: 'Scan Processing Error',
+        title: 'Extraction Error',
         description: errorMessage,
         variant: 'destructive',
       });
 
-      let errorStudentData: Partial<Student> = { id: extractedId?.toUpperCase() || "Unknown", name: "Unknown" };
-      if (student) {
-        errorStudentData = student;
-      } else if (extractedId) {
-        errorStudentData = { id: extractedId.toUpperCase(), name: "Not Registered" };
-      }
-
+      // Set error state for display
       setLastScanResult({
-        student: errorStudentData,
-        log: { type: 'Error', timestamp: now, message: errorMessage },
-        scannedImageUri: imageDataUri,
-        imageMatch: imageMatchResult,
+          student: { id: "Unknown", name: "Extraction Failed" },
+          log: { type: 'Error', timestamp: new Date(), message: errorMessage },
+          scannedImageUri: imageDataUri,
+          source: 'scan'
       });
-      processSuccessful = false;
-
-    } finally {
-      console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
-      setIsProcessingScan(false);
-      setIsExtracting(false); // Ensure extraction state is reset
-      // Keep scanner active only if using auto-capture loop, otherwise deactivate:
-      // setIsScannerActive(false); // Deactivate after processing manual capture.
+      setIsProcessing(false);
+      setIsExtracting(false);
     }
-  }, [toast, isProcessingScan]); // Add isProcessingScan dependency
+  }, [toast, isProcessing, sharedProcessLogic]); // Add dependencies
 
 
   // Scanner Success Handler (Called by BarcodeScanner on successful capture)
@@ -268,7 +310,7 @@ export default function AdminScanPage() {
       duration: 8000,
     });
     setIsScannerActive(false); // Deactivate scanner on error
-    setIsProcessingScan(false); // Reset processing state
+    setIsProcessing(false); // Reset processing state
     setIsExtracting(false); // Reset extraction state
   }, [toast]);
 
@@ -292,57 +334,36 @@ export default function AdminScanPage() {
                  description: "No image was captured.",
                  variant: "default"
              });
+             setIsProcessing(false); // Ensure processing state is reset if stopped early
         }
     }, [processCapturedImage, toast]);
 
   // Manual Capture Start
   const handleManualStartClick = useCallback(() => {
-    if (!isScannerActive && !isProcessingScan) {
+    if (!isScannerActive && !isProcessing) {
        console.log("[handleManualStartClick] Activating scanner...");
        setScanSessionError(null); // Clear previous errors
        setLastScanResult(null); // Clear previous results
        setCapturedImageUri(null); // Clear previous image preview
        setIsScannerActive(true); // Activate the scanner
     }
-  }, [isScannerActive, isProcessingScan]);
+  }, [isScannerActive, isProcessing]);
 
 
-  // Handler for manual file upload
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && !isProcessingScan) {
-      const reader = new FileReader();
-      reader.onloadstart = () => {
-        setIsProcessingScan(true); // Show processing indicator for upload
-        setLastScanResult(null);
-        setScanSessionError(null);
-      };
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setCapturedImageUri(reader.result);
-          processCapturedImage(reader.result); // Process after setting image
-        } else {
-          toast({ title: "File Read Error", description: "Could not read the uploaded file.", variant: "destructive" });
-          setIsProcessingScan(false);
-        }
-      };
-      reader.onerror = () => {
-        toast({ title: "File Read Error", description: "An error occurred while reading the file.", variant: "destructive" });
-        setIsProcessingScan(false);
-      };
-      reader.readAsDataURL(file);
-    }
-     // Reset file input to allow re-uploading the same file
-    if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-    }
-  }, [toast, processCapturedImage, isProcessingScan]);
-
-  const triggerFileUpload = useCallback(() => {
-    if (!isProcessingScan) {
-       fileInputRef.current?.click();
-    }
-  }, [isProcessingScan]);
+  // Handler for manual ID submission
+  const handleManualSubmit = useCallback((event: React.FormEvent) => {
+      event.preventDefault();
+      const trimmedId = manualStudentId.trim().toLowerCase();
+      if (!trimmedId) {
+          toast({ title: "Input Error", description: "Please enter a Student ID.", variant: "destructive" });
+          return;
+      }
+      if (isProcessing) {
+          console.log("[handleManualSubmit] Already processing, skipping.");
+          return;
+      }
+      sharedProcessLogic(trimmedId, 'manual');
+  }, [manualStudentId, isProcessing, sharedProcessLogic, toast]);
 
 
   return (
@@ -350,10 +371,33 @@ export default function AdminScanPage() {
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-primary">Record Entry/Exit</CardTitle>
-          <CardDescription>Capture student ID barcode to log visits.</CardDescription>
+          <CardDescription>Scan ID barcode or enter ID manually.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-6">
-          {/* Scanner Area or Start Buttons */}
+
+           {/* Manual Entry Section */}
+           <form onSubmit={handleManualSubmit} className="w-full max-w-xs flex items-end gap-2">
+             <div className="flex-grow">
+               <Label htmlFor="manual-student-id" className="sr-only">Student ID</Label>
+               <Input
+                 id="manual-student-id"
+                 type="text"
+                 placeholder="Enter Student ID"
+                 value={manualStudentId}
+                 onChange={(e) => setManualStudentId(e.target.value)}
+                 disabled={isProcessing || isScannerActive} // Disable if scanning or processing
+                 className="text-base" // Ensure text is readable
+               />
+             </div>
+             <Button type="submit" disabled={isProcessing || isScannerActive || !manualStudentId.trim()} className="transition-subtle">
+               {isProcessing && lastScanResult?.source === 'manual' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+               <span className="ml-2">Submit</span>
+             </Button>
+           </form>
+
+           <div className="text-center text-muted-foreground my-2">OR</div>
+
+          {/* Scanner Area or Start Button */}
           {isScannerActive ? (
             // Display the BarcodeScanner component when active
              <div className="w-full">
@@ -362,53 +406,37 @@ export default function AdminScanPage() {
                  onScanError={handleScannerError}
                  onManualStop={handleManualStop} // Pass handler for stop button
                  scanPrompt="Position barcode inside frame..."
-                 disabled={isProcessingScan || isExtracting} // Disable controls while processing/extracting
+                 disabled={isProcessing || isExtracting} // Disable controls while processing/extracting
                  setCapturedImageUri={setCapturedImageUri} // Pass the state setter function
                />
              </div>
           ) : (
-            // Initial state or after scanning stopped, show start/upload options
+            // Initial state or after scanning stopped, show start scan button
              <div className="flex flex-col items-center gap-4">
-                <Button onClick={handleManualStartClick} className="transition-subtle" disabled={isProcessingScan}>
+                <Button onClick={handleManualStartClick} className="transition-subtle" disabled={isProcessing}>
                    <Camera className="mr-2 h-4 w-4" /> Start Scan
                 </Button>
-                <div className="flex items-center">
-                  <Label htmlFor="file-upload" className="mr-2 text-sm text-muted-foreground">Or upload image:</Label>
-                  <Input
-                     id="file-upload"
-                     type="file"
-                     accept="image/*"
-                     ref={fileInputRef}
-                     onChange={handleFileUpload}
-                     className="hidden"
-                     disabled={isProcessingScan}
-                  />
-                  <Button onClick={triggerFileUpload} variant="outline" size="sm" disabled={isProcessingScan}>
-                     <Upload className="mr-1 h-3 w-3"/> Choose File
-                  </Button>
-                </div>
              </div>
           )}
 
 
-           {/* Show Preview of Captured/Uploaded Image */}
-           {capturedImageUri && !isScannerActive && !isProcessingScan && (
+           {/* Show Preview of Captured Image */}
+           {capturedImageUri && !isScannerActive && !isProcessing && lastScanResult?.source === 'scan' && (
                <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
                    <p className="text-sm font-medium text-center mb-2">Ready to Process:</p>
                    <Image
                        src={capturedImageUri}
-                       alt="Captured/Uploaded ID"
+                       alt="Captured ID"
                        width={150}
                        height={225} // Vertical aspect ratio
                        className="rounded-md mx-auto object-contain"
                    />
-                   {/* Optionally add a button to re-scan or clear */}
                </div>
            )}
 
 
            {/* Show Loading Indicator */}
-           {(isProcessingScan || isExtracting) && (
+           {(isProcessing || isExtracting) && (
              <div className="flex items-center justify-center gap-2 text-muted-foreground mt-4">
                <Loader2 className="h-5 w-5 animate-spin" />
                <span>{isExtracting ? 'Extracting ID...' : 'Processing...'}</span>
@@ -416,8 +444,8 @@ export default function AdminScanPage() {
            )}
 
 
-          {/* Last Scan Result Display (After successful or unsuccessful processing) */}
-          {lastScanResult && !isProcessingScan && !isExtracting && ( // Only show when *not* processing/extracting
+          {/* Last Scan/Manual Result Display (After successful or unsuccessful processing) */}
+          {lastScanResult && !isProcessing && !isExtracting && ( // Only show when *not* processing/extracting
             <Card className={`w-full max-w-md mt-4 border-2 ${
               lastScanResult.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
               lastScanResult.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
@@ -425,7 +453,7 @@ export default function AdminScanPage() {
             } ${lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? '!border-yellow-500 !bg-yellow-500/10' : ''}`}>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  {lastScanResult.log.type === 'Error' ? <><AlertCircle className="text-destructive" /> Scan Processing Error</> :
+                  {lastScanResult.log.type === 'Error' ? <><AlertCircle className="text-destructive" /> Processing Error</> :
                   lastScanResult.log.type === 'Entry' ? <><UserCheck className="text-green-600" /> Entry Recorded</> :
                   <><LogOut className="text-red-600" /> Exit Recorded</>}
                 </CardTitle>
@@ -436,8 +464,8 @@ export default function AdminScanPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-sm space-y-3">
-                {/* Scanned Image */}
-                {lastScanResult.scannedImageUri && (
+                {/* Scanned Image (Only show if source was 'scan') */}
+                {lastScanResult.source === 'scan' && lastScanResult.scannedImageUri && (
                   <div className="flex flex-col items-center mb-3">
                     <p className="text-xs font-medium text-muted-foreground mb-1">Scanned Image:</p>
                     <Image
@@ -476,7 +504,7 @@ export default function AdminScanPage() {
           )}
 
           {/* Display General Scanner Session Errors */}
-          {scanSessionError && !isProcessingScan && !isExtracting && ( // Only show if not currently processing
+          {scanSessionError && !isProcessing && !isExtracting && ( // Only show if not currently processing
             <Alert variant="destructive" className="w-full max-w-md mt-4">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Scanner Session Error</AlertTitle>
