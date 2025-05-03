@@ -4,44 +4,43 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Image from 'next/image';
 
-// Removed ZXing imports as they are not used for basic capture
-
 interface BarcodeScannerProps {
-  onScanSuccess: (imageDataUri: string) => void; // Capture success triggers this
+  onScanSuccess: (imageDataUri: string) => void; // Still used if auto-capture is re-enabled
   onScanError?: (error: Error) => void;
   scanPrompt?: string;
   disabled?: boolean;
   onManualStop?: (imageDataUri: string | null) => void; // Handler for when user clicks Stop
-  setCapturedImageUri?: (uri: string | null) => void; // Optional: Function to update the captured image URI state in parent
+  setCapturedImageUri: (uri: string | null) => void; // Make mandatory for state update
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
-  onScanSuccess,
+  onScanSuccess, // Keep for potential future auto-capture
   onScanError,
   scanPrompt = 'Position ID card inside the frame',
   disabled = false,
   onManualStop,
-  setCapturedImageUri // Receive the setter function as a prop
+  setCapturedImageUri // Now mandatory
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [internalCapturedImageUri, setInternalCapturedImageUri] = useState<string | null>(null); // Internal state for preview
+  const [internalCapturedImageUri, setInternalCapturedImageUri] = useState<string | null>(null);
 
   const [isStarting, setIsStarting] = useState(false);
-  const [isActive, setIsActive] = useState(false); // Camera stream is running
+  const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const { toast } = useToast();
 
-   // --- Event Handlers (defined with useCallback for stability) ---
+   // --- Event Handlers ---
   const handleVideoError = useCallback((event: Event) => {
-      console.error('Video Element Error Event:', event);
+      const logPrefix = "[VideoError]";
+      console.error(`${logPrefix} Event:`, event);
       const videoElement = event.target as HTMLVideoElement;
       const videoError = videoElement?.error;
       let message = "An unknown video error occurred.";
@@ -53,35 +52,30 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: message = "The video source format is not supported."; break;
               default: message = `An unknown video error occurred (Code: ${videoError.code}).`;
           }
-           // Specific message for "Could not start video source" which often wraps other errors
           if (message.includes('MEDIA_ERR_SRC_NOT_SUPPORTED') || message.includes('MEDIA_ERR_DECODE') || (event as any).message?.includes('Could not start video source')) {
                message = "Could not start video source. Ensure the camera is working and permissions are granted.";
           }
-          console.error(`Video Error Details: Code ${videoError.code}, Message: ${videoError.message}`); // Log details
-
+          console.error(`${logPrefix} Details: Code ${videoError.code}, Message: ${videoError.message}`);
       } else if ((event as any).message?.includes('Could not start video source')) {
-           // Catch generic errors sometimes thrown instead of via video.error
            message = "Could not start video source. Ensure the camera is working and permissions are granted.";
       }
 
       setError(message);
       toast({ title: "Video Playback Error", description: message, variant: "destructive", duration: 8000 });
       if (onScanError) onScanError(new Error(message));
-      // Let useEffect handle cleanup based on error state
   }, [toast, onScanError]);
 
   const handleLoadedMetadata = useCallback(() => {
       const video = videoRef.current;
       if (!video) return;
       console.log("[loadedmetadata] Video metadata loaded. Dimensions:", video.videoWidth, "x", video.videoHeight);
-      // Maybe adjust overlay size here if needed based on video dimensions
   }, []);
 
   const handleVideoPlay = useCallback(() => {
       console.log("[play] Video playback started successfully.");
-      setIsActive(true); // Confirm active state when play starts
-      setError(null); // Clear previous errors on successful play
-      setIsStarting(false); // Ensure starting indicator is off
+      setIsActive(true);
+      setError(null);
+      setIsStarting(false);
   }, []);
 
 
@@ -92,7 +86,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     const video = videoRef.current;
     if (video) {
-        // Remove listeners first
         console.log(`${logPrefix} Removing video listeners.`);
         video.removeEventListener('error', handleVideoError);
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -109,9 +102,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                     console.log(`${logPrefix} Track already stopped: ${track.id}`);
                 }
             });
-            video.srcObject = null; // Clear srcObject
+            video.srcObject = null;
             console.log(`${logPrefix} Cleared video srcObject.`);
-            // Only clear streamRef if it matches the one we just stopped
             if (streamRef.current && streamRef.current.id === stream.id) {
                 streamRef.current = null;
                 console.log(`${logPrefix} Cleared matching stream ref.`);
@@ -119,7 +111,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                 console.log(`${logPrefix} Stream ref (${streamRef.current?.id}) did not match srcObject stream (${stream.id}), not clearing ref.`);
             }
         } else if (streamRef.current) {
-            // Fallback: If srcObject wasn't set or cleared, but we have a streamRef
             console.log(`${logPrefix} No srcObject, but streamRef exists (${streamRef.current.id}). Stopping tracks on ref.`);
              streamRef.current.getTracks().forEach(track => {
                 if (track.readyState === 'live') {
@@ -141,7 +132,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         }
     } else {
       console.log(`${logPrefix} No video element ref to cleanup.`);
-       // If video ref doesn't exist, still try to clean up streamRef if it exists
        if (streamRef.current) {
            console.log(`${logPrefix} Cleaning up streamRef directly as video ref is null.`);
            streamRef.current.getTracks().forEach(track => track.stop());
@@ -151,26 +141,22 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     setIsActive(false);
     setIsStarting(false);
-    setInternalCapturedImageUri(null); // Clear internal preview state
+    setInternalCapturedImageUri(null);
 
-    // Attempt to clear the parent's state via the prop, only if the prop exists
+    // Always attempt to clear the image URI using the passed setter
     try {
-        if (typeof setCapturedImageUri === 'function') {
-            setCapturedImageUri(null);
-            console.log(`${logPrefix} Called setCapturedImageUri(null) in parent.`);
-        } else if (setCapturedImageUri !== undefined) {
-            // If the prop exists but isn't a function, log a warning
-            console.warn(`${logPrefix} setCapturedImageUri prop was provided but is not a function.`);
-        } else {
-            // If the prop wasn't provided at all, it's fine.
-             // console.log(`${logPrefix} setCapturedImageUri prop was not provided.`);
-        }
+        // This call relies on setCapturedImageUri being a valid function passed as a prop
+        setCapturedImageUri(null);
+        console.log(`${logPrefix} Called setCapturedImageUri(null).`);
     } catch (e) {
+        // This should ideally not happen if the prop is correctly passed and typed
         console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
+        // Optionally set an error state or notify the user if this is critical
+        // setError("Internal component error: Failed to clear image state on cleanup.");
     }
 
     console.log(`${logPrefix} Cleanup finished.`);
-  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]); // Add setCapturedImageUri dependency
+  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
 
 
   // --- Frame Capture ---
@@ -195,12 +181,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
 
     try {
-      // Set canvas dimensions to match video stream for accurate capture
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      // Draw the current video frame onto the hidden canvas
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      // Get the captured image as a Data URI (PNG format)
       const imageDataUri = canvas.toDataURL('image/png');
       console.log(`${logPrefix} Success. Frame captured. Length: ${imageDataUri.length}`);
       return imageDataUri;
@@ -221,23 +204,18 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     const logPrefix = "[handleStopClick]";
     console.log(`${logPrefix} Manual stop requested.`);
 
-    const lastFrameUri = captureFrame(); // Try to capture one last frame
-    setInternalCapturedImageUri(lastFrameUri); // Update internal preview
+    const lastFrameUri = captureFrame();
+    setInternalCapturedImageUri(lastFrameUri);
 
     try {
-      // Update parent's state with the last captured frame (or null if failed)
-       if (typeof setCapturedImageUri === 'function') {
-           setCapturedImageUri(lastFrameUri);
-           console.log(`${logPrefix} Updated parent captured image URI.`);
-       } else if (setCapturedImageUri !== undefined) {
-            console.warn(`${logPrefix} setCapturedImageUri prop was provided but is not a function.`);
-       }
+       setCapturedImageUri(lastFrameUri);
+       console.log(`${logPrefix} Updated parent captured image URI.`);
     } catch (e) {
       console.error(`${logPrefix} Error calling setCapturedImageUri during stop:`, e);
       setError("Internal component error: Failed to update image state on stop.");
     }
 
-    cleanupCamera("manual stop"); // Stop the camera stream and listeners
+    cleanupCamera("manual stop");
 
     if (onManualStop) {
       console.log(`${logPrefix} Calling onManualStop with image URI (or null):`, lastFrameUri ? 'Yes' : 'No');
@@ -245,7 +223,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     } else {
        console.warn(`${logPrefix} onManualStop handler not provided.`);
     }
-  }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri]); // Dependencies
+  }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri]);
 
 
   // --- Start Camera ---
@@ -257,27 +235,22 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       return;
     }
 
-    // Reset states
+    // Ensure setCapturedImageUri is a function before proceeding
+    if (typeof setCapturedImageUri !== 'function') {
+      console.error(`${logPrefix} Aborted - setCapturedImageUri prop is not a function.`);
+      setError("Internal component error: State update function missing.");
+      setIsStarting(false); // Reset starting state
+      return; // Critical error, cannot proceed
+    }
+
     setError(null);
     setHasCameraPermission(null);
     setIsStarting(true);
     setIsActive(false);
-    setInternalCapturedImageUri(null); // Clear internal preview state
-
-    // Check if the setCapturedImageUri prop is valid (if provided)
-    if (setCapturedImageUri !== undefined && typeof setCapturedImageUri !== 'function') {
-        console.error(`${logPrefix} Aborted - setCapturedImageUri prop was provided but is not a function.`);
-        setError("Internal component error: Invalid state update function provided.");
-        setIsStarting(false);
-        return; // Cannot proceed if the prop is invalid
-    }
-
+    setInternalCapturedImageUri(null);
 
     try {
-      // Clear parent's state at the start if the function exists
-      if (typeof setCapturedImageUri === 'function') {
-         setCapturedImageUri(null);
-      }
+      setCapturedImageUri(null); // Clear parent's state
     } catch (e) {
       console.error(`${logPrefix} Error calling setCapturedImageUri during start:`, e);
       setError("Internal component error: Failed to clear image state.");
@@ -286,8 +259,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
 
     console.log(`${logPrefix} Performing pre-start cleanup.`);
-    cleanupCamera("startCamera preamble"); // Cleanup before starting
-    await new Promise(resolve => setTimeout(resolve, 50)); // Short delay
+    cleanupCamera("startCamera preamble");
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     const video = videoRef.current;
     if (!video) {
@@ -298,9 +271,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         return;
     }
 
-    // Attach listeners before getting stream
     console.log(`${logPrefix} Attaching video event listeners before stream request.`);
-    video.removeEventListener('error', handleVideoError); // Clean previous just in case
+    video.removeEventListener('error', handleVideoError);
     video.removeEventListener('loadedmetadata', handleLoadedMetadata);
     video.removeEventListener('play', handleVideoPlay);
     video.addEventListener('error', handleVideoError);
@@ -313,8 +285,6 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         throw new Error('Camera access (getUserMedia) is not supported by this browser.');
       }
 
-      // --- Simplified Constraints ---
-      // Try basic video first, then environment facing
       let stream: MediaStream | null = null;
       try {
           console.log(`${logPrefix} Trying simple video constraint.`);
@@ -322,10 +292,8 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       } catch (err: any) {
           console.warn(`${logPrefix} Simple video constraint failed (${err.name}). Trying environment facing.`);
           if (err.name !== 'OverconstrainedError' && err.name !== 'NotFoundError') {
-              // If it's not a constraint/not found error, re-throw permission errors etc.
                throw err;
           }
-          // Fallback to environment facing if simple fails
            try {
               console.log(`${logPrefix} Trying environment facing constraint.`);
               stream = await navigator.mediaDevices.getUserMedia({
@@ -334,28 +302,24 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               });
           } catch (innerErr: any) {
               console.error(`${logPrefix} Both simple and environment facing constraints failed.`);
-              // If environment also fails, try ANY camera as a last resort
                try {
                    console.warn(`${logPrefix} Environment constraint failed. Trying ANY video device.`);
                    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                } catch (finalErr) {
                    console.error(`${logPrefix} All camera constraints (simple, environment, any) failed.`);
-                   throw innerErr; // Throw the error from the second (environment) attempt as it's more specific
+                   throw innerErr;
                }
           }
       }
-      // --- End Simplified Constraints ---
 
       console.log(`${logPrefix} Stream obtained:`, stream.id);
       setHasCameraPermission(true);
-      streamRef.current = stream; // Store the stream reference *immediately*
+      streamRef.current = stream;
 
-      // Double check video ref hasn't become null
       const currentVideo = videoRef.current;
       if (!currentVideo) {
           throw new Error("Video element reference became unavailable after stream acquisition.");
       }
-
 
       if (currentVideo.srcObject) {
         console.warn(`${logPrefix} Detaching existing srcObject before setting new one.`);
@@ -364,28 +328,24 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       }
 
       currentVideo.srcObject = stream;
-      currentVideo.muted = true; // Ensure muted
-      currentVideo.playsInline = true; // Important for iOS
+      currentVideo.muted = true;
+      currentVideo.playsInline = true;
       console.log(`${logPrefix} Set video srcObject.`);
 
       console.log(`${logPrefix} Attempting video.play()...`);
-      // Don't await play(), let the 'play' event handler update state
       currentVideo.play().catch(playError => {
-          // Catch potential synchronous play errors (less common)
           console.error(`${logPrefix} video.play() promise rejected synchronously:`, playError);
-           // If play fails, try to provide a more specific error based on common issues
           let playErrorMessage = `Video playback failed: ${playError.name} - ${playError.message}.`;
            if (playError.name === 'NotAllowedError') {
-               playErrorMessage += " Ensure the action was triggered by user interaction (like a button click) and check browser autoplay policies.";
+               playErrorMessage += " Ensure action triggered by user interaction & check autoplay policies.";
            } else if (playError.name === 'NotSupportedError') {
-               playErrorMessage += " The video format or source might not be supported by the browser.";
+               playErrorMessage += " Video format or source might not be supported.";
            }
            const wrappedError = new Error(playErrorMessage);
-           (wrappedError as any).cause = playError; // Keep original error context if needed
-           throw wrappedError; // Re-throw the more descriptive error
+           (wrappedError as any).cause = playError;
+           throw wrappedError;
       });
       console.log(`${logPrefix} video.play() called.`);
-
 
     } catch (err: any) {
         console.error(`${logPrefix} Error during camera start or playback:`, err);
@@ -397,7 +357,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             permissionRelated = true;
         } else if (['NotFoundError', 'DevicesNotFoundError'].includes(err.name)) {
             message = 'No compatible camera found. Ensure it is connected and enabled.';
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError' || err.name === 'AbortError' || err.name === 'OverconstrainedError') {
+        } else if (['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError'].includes(err.name)) {
              message = err.name === 'NotReadableError'
              ? 'Camera is already in use or could not be started. Close other apps/tabs using the camera and refresh.'
              : err.name === 'OverconstrainedError'
@@ -412,21 +372,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
          else if (err.message?.includes('Could not start video source')) {
              message = 'Could not start video source. Ensure the camera is working and permissions are granted.';
          }
-         // Check for the more specific playback error message created in the play().catch block
          else if (err.message?.startsWith('Video playback failed:')) {
              message = err.message;
          }
-
 
         setError(message);
         setHasCameraPermission(permissionRelated ? false : null);
         toast({ title: 'Camera Start Error', description: message, variant: 'destructive', duration: 8000 });
         if (onScanError) onScanError(err instanceof Error ? err : new Error(message));
-        cleanupCamera("startCamera error handler"); // Ensure cleanup happens on error
+        cleanupCamera("startCamera error handler");
     } finally {
-      // Don't set isActive here, let the 'play' event handle it.
-      // Only reset isStarting if no 'play' event is expected (i.e., if there was an error before play)
-      if (error || (!isActive && !isStarting)) { // Also check if already inactive (e.g. permission denied before play)
+      if (error || (!isActive && !isStarting)) {
          setIsStarting(false);
       }
       console.log(`${logPrefix} Finished start attempt. State:`, { isStarting, isActive, error });
@@ -434,9 +390,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
 
 
-  // Effect to cleanup on error state change (excluding permission denial handled separately)
+  // Effect to cleanup on error state change
   useEffect(() => {
-      if (error && hasCameraPermission !== false) { // Check if error exists AND it's not a permission denial
+      if (error && hasCameraPermission !== false) {
           console.log("[ErrorEffect] Cleaning up camera due to error state change:", error);
           cleanupCamera("error effect");
       }
@@ -445,7 +401,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
   // --- Unmount Cleanup ---
   useEffect(() => {
-    const componentName = "BarcodeScanner"; // For logging
+    const componentName = "BarcodeScanner";
     console.log(`${componentName}: Mounting.`);
     return () => {
       console.log(`${componentName}: Unmounting. Cleaning up camera.`);
@@ -464,49 +420,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
   };
 
-  // --- Handle Capture Button Click ---
-  const handleCaptureClick = useCallback(() => {
-    const logPrefix = "[handleCaptureClick]";
-    if (!isActive) {
-      console.warn(`${logPrefix} Camera not active.`);
-      toast({title: "Camera Not Ready", description: "Please start the camera first.", variant: "destructive"})
-      return;
-    }
-    const imageDataUri = captureFrame();
-    if (imageDataUri) {
-      console.log(`${logPrefix} Frame captured successfully.`);
-      setInternalCapturedImageUri(imageDataUri); // Update internal preview state
-      try {
-        // Update the parent component's state via the prop function, if provided
-         if (typeof setCapturedImageUri === 'function') {
-             setCapturedImageUri(imageDataUri);
-             console.log(`${logPrefix} Updated parent captured image URI.`);
-         } else if (setCapturedImageUri !== undefined) {
-              console.warn(`${logPrefix} setCapturedImageUri prop was provided but is not a function.`);
-         }
-        // Call the success handler provided by the parent
-        onScanSuccess(imageDataUri);
-        // Stop the camera stream after successful capture
-        cleanupCamera("capture success");
-      } catch (e) {
-         console.error(`${logPrefix} Error calling setCapturedImageUri or onScanSuccess after capture:`, e);
-         const errorMsg = e instanceof Error ? e.message : "Unknown error processing capture.";
-         setError(`Failed to process captured image: ${errorMsg}. Please try again.`);
-         toast({title: "Processing Error", description: `Could not process the captured image: ${errorMsg}`, variant: "destructive"})
-      }
-
-    } else {
-      console.error(`${logPrefix} Failed to capture frame.`);
-      // Error display/handling is done within captureFrame or startCamera
-      toast({title: "Capture Failed", description: "Could not capture image from camera.", variant: "destructive"})
-    }
-  }, [isActive, captureFrame, onScanSuccess, setCapturedImageUri, cleanupCamera, toast]); // Dependencies
-
 
   return (
     <div className={`flex flex-col items-center gap-4 w-full max-w-xs ${disabled && !isStarting ? 'opacity-50 pointer-events-none' : ''}`}>
       {/* Camera/Video Display Area */}
-      {/* Container maintains aspect ratio for ID card (approx 3:4.5 or 2:3) */}
       <div className={`w-full aspect-[2/3] border rounded-lg overflow-hidden shadow-md bg-muted relative ${isStarting || isActive || error || hasCameraPermission === false ? 'block' : 'hidden'}`}>
         {/* Video element container */}
         <div className={`relative w-full h-full ${isStarting || isActive ? 'block' : 'hidden'}`}>
@@ -589,18 +506,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           </Button>
         ) :
         isActive ? (
-           // Show "Capture" and "Stop" buttons if active
-          <>
-            <Button onClick={handleCaptureClick} disabled={disabled || isStarting} className="transition-subtle">
-              <ScanLine className="mr-2 h-4 w-4" /> Capture Image
-            </Button>
-            {/* Only show Stop button if the onManualStop handler is provided */}
-            {onManualStop && (
+           // Show ONLY the "Stop Scanning" button if active and the handler is provided
+            onManualStop && (
                <Button onClick={handleStopClick} variant="destructive" disabled={disabled || isStarting} className="transition-subtle">
                  <StopCircle className="mr-2 h-4 w-4" /> Stop Scanning
                </Button>
-             )}
-          </>
+             )
         ) : null // Don't show buttons while starting, or if permission denied/error occurred (handled in overlays)
         }
       </div>
