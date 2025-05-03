@@ -13,6 +13,7 @@ export const ai = genkit({
       apiKey: process.env.GROQ_API_KEY,
     }),
   ],
-  // No default model specified; each prompt/flow should define its own model
-  // model: 'googleai/gemini-2.0-flash', // Removed default
+  // Gemini Flash is generally used for vision/multimodal tasks due to reliability.
+  // Groq models are available for text-based tasks if specified in the prompt/flow.
+  // No global default model specified; each prompt/flow should define its own.
 });

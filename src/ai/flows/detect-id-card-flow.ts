@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview A Genkit flow to quickly detect if an image likely contains an ID card using Groq's Llama 4 Scout model.
+ * @fileOverview A Genkit flow to detect if an image likely contains an ID card using Google's Gemini Flash model.
  *
  * - detectIdCard - A function that checks if an image contains an ID card.
  * - DetectIdCardInput - The input type for the detectIdCard function.
@@ -20,7 +20,7 @@ const DetectIdCardInputSchema = z.object({
 export type DetectIdCardInput = z.infer<typeof DetectIdCardInputSchema>;
 
 const DetectIdCardOutputSchema = z.object({
-  isIdCard: z.boolean().describe('Whether the image likely contains an ID card or similar document (e.g., driver\'s license, library card). Focus on rectangular shape, presence of text, photo, and potentially a barcode.'),
+  isIdCard: z.boolean().describe('Whether the image primarily features an ID card, library card, driver\'s license, or a similar type of identification document.'),
 });
 export type DetectIdCardOutput = z.infer<typeof DetectIdCardOutputSchema>;
 
@@ -29,28 +29,28 @@ export async function detectIdCard(input: DetectIdCardInput): Promise<DetectIdCa
 }
 
 const detectIdCardPrompt = ai.definePrompt({
-  name: 'detectIdCardPromptGroq', // Updated name to reflect model
-  // Explicitly use the Groq Llama 4 Scout model
-  model: 'groq/meta-llama/llama-4-scout-17b-16e-instruct',
+  name: 'detectIdCardPromptGemini', // Updated name to reflect model
+  // Explicitly use Google AI Gemini Flash model (more reliable for vision)
+  model: 'googleai/gemini-2.0-flash',
   input: {
     schema: DetectIdCardInputSchema,
   },
   output: {
     schema: DetectIdCardOutputSchema,
   },
-  prompt: `Analyze the provided image. Your task is to determine, quickly and efficiently, if the image primarily features an ID card, library card, driver's license, or a similar type of identification document.
+  prompt: `Analyze the provided image. Your task is to determine if the image primarily features an ID card, library card, driver's license, or a similar type of identification document.
 
-Focus on these key indicators:
-- A distinct rectangular shape.
-- Presence of structured text (like name, ID number, expiration date).
-- A photograph of a person.
-- A barcode or QR code.
+Look for these key indicators:
+- A distinct rectangular shape typical of cards.
+- Presence of structured text (like name, ID number).
+- Often includes a photograph of a person.
+- May contain a barcode or QR code.
 
-Ignore images that are clearly just walls, desks, people without a visible card, blurry images, or other irrelevant scenes.
+Ignore images that are clearly just walls, desks, people without a visible card, overly blurry images, or other non-card scenes.
 
 Image: {{media url=imageDataUri}}
 
-Based on the visual evidence, is it likely that this image contains an ID card or similar document? Respond with only 'true' or 'false' in the isIdCard field.`,
+Based ONLY on the visual evidence in the image, is it likely that this image contains an ID card or similar document? Respond with only 'true' or 'false' in the isIdCard field.`,
 });
 
 const detectIdCardFlow = ai.defineFlow<
@@ -64,22 +64,16 @@ const detectIdCardFlow = ai.defineFlow<
   },
   async input => {
     try {
-        // This prompt call will now use the specified Groq model.
+        // This prompt call will now use the specified Gemini model.
         const { output } = await detectIdCardPrompt(input);
-        console.log("DetectIdCard Flow Output (Groq):", output);
+        console.log("DetectIdCard Flow Output (Gemini):", output);
         // Ensure the output matches the schema, defaulting to false if unexpected
-        // The model is instructed to return true/false in the field directly.
         return {
             isIdCard: output?.isIdCard ?? false,
         };
      } catch (error: any) {
-        console.error("Error in detectIdCardFlow (Groq):", error);
-         // Check for specific Groq/Genkit errors related to image handling if needed
-         if (error.message?.includes("Media content part MIME type") || error.message?.includes("unsupported input modality")) {
-             console.error("Groq model via Genkit might not support the 'media' helper for this model version. Falling back to 'false'.");
-             return { isIdCard: false };
-         }
-        // Default to false in case of any other error during detection
+        console.error("Error in detectIdCardFlow (Gemini):", error);
+        // Default to false in case of any error during detection
         return {
            isIdCard: false,
         };
