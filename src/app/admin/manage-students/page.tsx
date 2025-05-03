@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -324,7 +325,13 @@ export default function AdminManageStudentsPage() {
                            ) : (
                                <span className="text-xs text-muted-foreground">No Image</span>
                            )}
-                        </TableCell><TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell><TableCell className="whitespace-nowrap">{student.name}</TableCell><TableCell>{student.branch}</TableCell><TableCell>{student.rollNo || '-'}</TableCell>{/* Display dash if no roll no */}<TableCell>{student.yearOfStudy}</TableCell><TableCell className="text-right space-x-1 whitespace-nowrap">{/* Reduced space */}
+                        </TableCell>
+                       <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
+                       <TableCell className="whitespace-nowrap">{student.name}</TableCell>
+                       <TableCell>{student.branch}</TableCell>
+                       <TableCell>{student.rollNo || '-'}</TableCell>{/* Display dash if no roll no */}
+                       <TableCell>{student.yearOfStudy}</TableCell>
+                       <TableCell className="text-right space-x-1 whitespace-nowrap">{/* Reduced space */}
                         <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
                              <Edit className="h-4 w-4" />
                          </Button>
@@ -394,7 +401,6 @@ export default function AdminManageStudentsPage() {
                                                    onManualStop={handleEditManualStop}
                                                    scanPrompt="Position ID card..."
                                                    disabled={isEditModeExtracting}
-                                                   capturedImageUri={editModeCapturedImageUri} // Pass current edit image URI
                                                    setCapturedImageUri={setEditModeCapturedImageUri} // Pass the setter
                                                />
                                                 {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}

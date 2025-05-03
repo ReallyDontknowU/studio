@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -362,8 +363,7 @@ export default function AdminScanPage() {
                  onManualStop={handleManualStop} // Pass handler for stop button
                  scanPrompt="Position barcode inside frame..."
                  disabled={isProcessingScan || isExtracting} // Disable controls while processing/extracting
-                 capturedImageUri={capturedImageUri}
-                 setCapturedImageUri={setCapturedImageUri}
+                 setCapturedImageUri={setCapturedImageUri} // Pass the state setter function
                />
              </div>
           ) : (
