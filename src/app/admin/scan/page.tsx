@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -8,7 +7,7 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X } from 'lucide-react'; // Added Send for manual entry, X for clearing errors
+import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw } from 'lucide-react'; // Added Send for manual entry, X for clearing errors, RefreshCw
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -97,6 +96,52 @@ interface LastScanResultType {
     imageMatch?: boolean; // Keep for scan results
     source: 'scan' | 'manual'; // Track source of the result
 }
+
+// --- Audio Playback ---
+// Preload audio elements for better performance
+let entryAudio: HTMLAudioElement | null = null;
+let exitAudio: HTMLAudioElement | null = null;
+let errorAudio: HTMLAudioElement | null = null;
+
+if (typeof window !== 'undefined') {
+    // IMPORTANT: Replace these placeholder URLs with actual URLs to your sound files
+    // Ensure these files are accessible from your public folder or a CDN
+    entryAudio = new Audio('/sounds/entry_success.mp3'); // Example path
+    exitAudio = new Audio('/sounds/exit_success.mp3'); // Example path
+    errorAudio = new Audio('/sounds/error.mp3'); // Example path
+
+    // Optional: Preload audio to reduce delay on first play
+    entryAudio.preload = 'auto';
+    exitAudio.preload = 'auto';
+    errorAudio.preload = 'auto';
+
+    entryAudio.onerror = () => console.error("Failed to load entry audio.");
+    exitAudio.onerror = () => console.error("Failed to load exit audio.");
+    errorAudio.onerror = () => console.error("Failed to load error audio.");
+}
+
+const playSound = (type: 'entry' | 'exit' | 'error') => {
+    let audioToPlay: HTMLAudioElement | null = null;
+
+    switch (type) {
+        case 'entry': audioToPlay = entryAudio; break;
+        case 'exit': audioToPlay = exitAudio; break;
+        case 'error': audioToPlay = errorAudio; break;
+    }
+
+    if (audioToPlay) {
+        // Reset playback time and play
+        audioToPlay.currentTime = 0;
+        audioToPlay.play().catch(error => {
+            console.error(`Error playing ${type} sound:`, error);
+            // Browsers might block autoplay without user interaction
+            // The scanning process itself *should* count as interaction
+        });
+    } else {
+        console.warn(`Audio element for ${type} not loaded.`);
+    }
+};
+
 
 export default function AdminScanPage() {
   const { toast } = useToast();
@@ -213,6 +258,10 @@ export default function AdminScanPage() {
             });
             console.log(`${logPrefix} Success - ${student.name} recorded as ${currentAction}.`);
 
+            // Play success sound
+            playSound(currentAction === 'Entry' ? 'entry' : 'exit');
+
+
         } catch (error: any) {
             console.error(`${logPrefix} Error processing:`, error);
             const errorMessage = error.message || 'An unknown error occurred during processing.';
@@ -221,9 +270,12 @@ export default function AdminScanPage() {
                 description: errorMessage,
                 variant: 'destructive',
             });
+            // Play error sound
+            playSound('error');
+
 
             // Prepare data for error result display
-            let errorStudentData: Partial<Student> = { id: studentId.toUpperCase() || "Unknown ID", name: "Unknown Name" };
+            let errorStudentData: Partial<Student> = { id: studentId?.toUpperCase() || "Unknown ID", name: "Unknown Name" }; // Safely access studentId
             if (student) { // If student was found before error (e.g., rate limit)
                 errorStudentData = student;
             } else if (studentId) { // If student ID was provided but not found
@@ -249,15 +301,11 @@ export default function AdminScanPage() {
                 setManualStudentId(''); // Clear manual input field after processing attempt
             }
              // Deactivate scanner ONLY if processing was successful OR if it was a manual entry
-            if (processSuccessful || source === 'manual') {
+             // Also deactivate if there was an error during scan processing
+             if (processSuccessful || source === 'manual' || (source === 'scan' && !processSuccessful) ) {
                  setIsScannerActive(false);
-            } else {
-                 // Keep scanner active after a failed SCAN attempt to allow retry?
-                 // Or maybe stop it? Let's stop it for now to match manual stop behavior.
-                 setIsScannerActive(false);
-                 // If scan failed, keep capturedImageUri for display with error?
-                 // setCapturedImageUri(null); // Clear image on scan failure? Or keep it? Let's keep it.
-            }
+             }
+            // Keep capturedImageUri if scan failed? Yes, keep it for the error display.
         }
   }, [toast]);
 
@@ -301,6 +349,9 @@ export default function AdminScanPage() {
         description: errorMessage,
         variant: 'destructive',
       });
+      // Play error sound
+      playSound('error');
+
 
       // Set error state for display using lastScanResult
       setLastScanResult({
@@ -339,6 +390,8 @@ export default function AdminScanPage() {
       variant: 'destructive',
       duration: 8000,
     });
+    // Play error sound
+    playSound('error');
     setIsScannerActive(false); // Deactivate scanner on error
     setIsProcessing(false); // Reset processing state
     setIsExtracting(false); // Reset extraction state
@@ -366,6 +419,7 @@ export default function AdminScanPage() {
              });
              setIsProcessing(false); // Ensure processing state is reset if stopped early
              setIsExtracting(false);
+             // No specific sound for stopping without capture? Or maybe a neutral 'cancel' sound?
         }
     }, [processCapturedImage, toast]); // Depend on processCapturedImage
 
@@ -387,6 +441,8 @@ export default function AdminScanPage() {
       const trimmedId = manualStudentId.trim().toLowerCase();
       if (!trimmedId) {
           toast({ title: "Input Error", description: "Please enter a Student ID.", variant: "destructive" });
+           // Play error sound for validation error
+           playSound('error');
           return;
       }
       if (isProcessing) {
@@ -466,6 +522,7 @@ export default function AdminScanPage() {
                              width={150}
                              height={225} // Vertical aspect ratio
                              className="rounded-md mx-auto object-contain"
+                             data-ai-hint="scanned id card"
                          />
                      </div>
                  )}
@@ -522,6 +579,7 @@ export default function AdminScanPage() {
                         : lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' ? 'border-green-500 border-2'
                         : 'border-muted'
                       }`}
+                      data-ai-hint="scanned id card result"
                     />
                     {/* Image Match Status */}
                     {lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' && (
@@ -578,4 +636,3 @@ export default function AdminScanPage() {
     </div>
   );
 }
-
