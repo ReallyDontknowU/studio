@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -7,7 +8,7 @@ import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { detectIdCard } from '@/ai/flows/detect-id-card-flow'; // Import the new detection flow
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw, ScanLine } from 'lucide-react';
+import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw, ScanLine, Eye } from 'lucide-react';
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -97,28 +98,33 @@ interface LastScanResultType {
 let entryAudio: HTMLAudioElement | null = null;
 let exitAudio: HTMLAudioElement | null = null;
 let errorAudio: HTMLAudioElement | null = null;
+let processingAudio: HTMLAudioElement | null = null; // Added for processing sound
 
 if (typeof window !== 'undefined') {
     entryAudio = new Audio('/sounds/entry_success.mp3');
     exitAudio = new Audio('/sounds/exit_success.mp3');
     errorAudio = new Audio('/sounds/error.mp3');
+    processingAudio = new Audio('/sounds/processing.mp3'); // Load processing sound
 
     entryAudio.preload = 'auto';
     exitAudio.preload = 'auto';
     errorAudio.preload = 'auto';
+    processingAudio.preload = 'auto'; // Preload processing sound
 
     entryAudio.onerror = () => console.error("Failed to load entry audio.");
     exitAudio.onerror = () => console.error("Failed to load exit audio.");
     errorAudio.onerror = () => console.error("Failed to load error audio.");
+    processingAudio.onerror = () => console.error("Failed to load processing audio."); // Error handler
 }
 
-const playSound = (type: 'entry' | 'exit' | 'error') => {
+const playSound = (type: 'entry' | 'exit' | 'error' | 'processing') => { // Added 'processing' type
     let audioToPlay: HTMLAudioElement | null = null;
 
     switch (type) {
         case 'entry': audioToPlay = entryAudio; break;
         case 'exit': audioToPlay = exitAudio; break;
         case 'error': audioToPlay = errorAudio; break;
+        case 'processing': audioToPlay = processingAudio; break; // Handle processing sound
     }
 
     if (audioToPlay) {
@@ -289,6 +295,7 @@ export default function AdminScanPage() {
 
       // ID card detected, proceed to extraction
       console.log(`${logPrefix} ID card detected. Calling extractBarcodeData...`);
+      playSound('processing'); // Play processing sound
       setIsExtracting(true); // Start barcode extraction indicator
       const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
       console.log(`${logPrefix} Extraction result:`, extractionResult);
