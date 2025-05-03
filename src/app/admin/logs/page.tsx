@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Download, Filter, X } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BRANCHES } from '@/lib/constants'; // Assuming constants are defined
+import { useToast } from '@/hooks/use-toast';
 
 // Mock function to get logs (replace with actual data fetching)
 const getEntryLogs = (): EntryLog[] => {
@@ -25,15 +26,78 @@ const getEntryLogs = (): EntryLog[] => {
   return []; // Return empty array if no logs found
 };
 
-// Mock function to export data (replace with actual implementation)
-const exportData = (data: EntryLog[], format: 'csv' | 'excel') => {
-    console.log(`Exporting ${data.length} records to ${format}...`);
-    // TODO: Implement actual CSV/Excel export logic (e.g., using libraries like papaparse or xlsx)
-    alert(`Exporting to ${format} is not yet implemented in this demo.`);
+
+// Function to escape CSV fields if necessary
+const escapeCsvField = (field: string | undefined | null): string => {
+    if (field === null || field === undefined) {
+        return '';
+    }
+    const stringField = String(field);
+    // Check if the field contains comma, double quote, or newline
+    if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') || stringField.includes('\r')) {
+        // Escape double quotes by doubling them and enclose the whole field in double quotes
+        return `"${stringField.replace(/"/g, '""')}"`;
+    }
+    return stringField;
+};
+
+
+// Function to export data as CSV
+const exportDataToCsv = (data: EntryLog[], toast: ReturnType<typeof useToast>['toast']) => {
+    if (!data || data.length === 0) {
+        toast({
+            title: 'Export Failed',
+            description: 'No data available to export.',
+            variant: 'destructive',
+        });
+        return;
+    }
+
+    console.log(`Exporting ${data.length} records to CSV...`);
+
+    const headers = ['Timestamp', 'Student Name', 'Student ID', 'Branch', 'Type'];
+    const csvRows = [
+        headers.join(','), // Header row
+        ...data.map(log => [
+            format(log.timestamp, 'yyyy-MM-dd HH:mm:ss'), // Standard format for CSV
+            escapeCsvField(log.studentName),
+            escapeCsvField(log.studentId),
+            escapeCsvField(log.branch),
+            escapeCsvField(log.type)
+        ].join(','))
+    ];
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+
+    // Create a link and trigger the download
+    const link = document.createElement('a');
+    if (link.download !== undefined) { // Feature detection
+        const url = URL.createObjectURL(blob);
+        const currentDate = format(new Date(), 'yyyyMMdd');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `library_logs_${currentDate}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url); // Clean up
+        toast({
+            title: 'Export Successful',
+            description: `${data.length} log entries exported to CSV.`,
+        });
+    } else {
+         toast({
+             title: 'Export Failed',
+             description: 'CSV download is not supported by your browser.',
+             variant: 'destructive',
+         });
+    }
 };
 
 
 export default function AdminLogsPage() {
+  const { toast } = useToast();
   const [logs, setLogs] = useState<EntryLog[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<EntryLog[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -120,7 +184,7 @@ export default function AdminLogsPage() {
                     <X className="h-4 w-4" />
                 </Button>
                 <div className="flex-grow"></div> {/* Spacer */}
-                 <Button onClick={() => exportData(filteredLogs, 'csv')} variant="outline" size="sm">
+                 <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm">
                      <Download className="mr-2 h-4 w-4" /> Export CSV
                  </Button>
                  {/* Add Excel export button if needed */}
@@ -151,7 +215,7 @@ export default function AdminLogsPage() {
                       <TableCell>{log.branch}</TableCell>
                       <TableCell>
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          log.type === 'Entry' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          log.type === 'Entry' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                         }`}>
                           {log.type}
                         </span>
