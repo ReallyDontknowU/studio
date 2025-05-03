@@ -7,10 +7,12 @@ import type { EntryLog } from '@/lib/types';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Download, Filter, X } from 'lucide-react';
+import { Download, Filter, X, FileText } from 'lucide-react'; // Added FileText for PDF icon
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BRANCHES } from '@/lib/constants'; // Assuming constants are defined
 import { useToast } from '@/hooks/use-toast';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 // Mock function to get logs (replace with actual data fetching)
 const getEntryLogs = (): EntryLog[] => {
@@ -47,7 +49,7 @@ const exportDataToCsv = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
     if (!data || data.length === 0) {
         toast({
             title: 'Export Failed',
-            description: 'No data available to export.',
+            description: 'No data available to export as CSV.',
             variant: 'destructive',
         });
         return;
@@ -93,6 +95,67 @@ const exportDataToCsv = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
              variant: 'destructive',
          });
     }
+};
+
+// Function to export data as PDF
+const exportDataToPdf = (data: EntryLog[], toast: ReturnType<typeof useToast>['toast']) => {
+  if (!data || data.length === 0) {
+      toast({
+          title: 'Export Failed',
+          description: 'No data available to export as PDF.',
+          variant: 'destructive',
+      });
+      return;
+  }
+
+  console.log(`Exporting ${data.length} records to PDF...`);
+
+  try {
+    const doc = new jsPDF();
+    const tableColumn = ["Timestamp", "Student Name", "Student ID", "Branch", "Type"];
+    const tableRows: (string | null | undefined)[][] = [];
+
+    data.forEach(log => {
+      const logData = [
+        format(log.timestamp, 'yyyy-MM-dd HH:mm:ss'), // Consistent format
+        log.studentName,
+        log.studentId,
+        log.branch,
+        log.type
+      ];
+      tableRows.push(logData);
+    });
+
+    doc.setFontSize(18);
+    doc.text("Library Entry/Exit Log", 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPpp')}`, 14, 29);
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 35,
+      theme: 'grid', // or 'striped', 'plain'
+      headStyles: { fillColor: [22, 160, 133] }, // Example header style
+      styles: { fontSize: 10 },
+    });
+
+    const currentDate = format(new Date(), 'yyyyMMdd');
+    doc.save(`library_logs_${currentDate}.pdf`);
+
+    toast({
+        title: 'Export Successful',
+        description: `${data.length} log entries exported to PDF.`,
+    });
+  } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast({
+          title: 'Export Failed',
+          description: 'An error occurred while generating the PDF.',
+          variant: 'destructive',
+      });
+  }
 };
 
 
@@ -152,15 +215,15 @@ export default function AdminLogsPage() {
         </CardHeader>
         <CardContent>
             {/* Filtering and Export Controls */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center">
+            <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center flex-wrap"> {/* Added flex-wrap */}
                <Input
                   placeholder="Search by Name or ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="max-w-xs"
+                  className="max-w-xs flex-shrink-0" // Prevent shrinking too much
                />
                 <Select value={filterBranch} onValueChange={setFilterBranch}>
-                    <SelectTrigger className="w-[180px]">
+                    <SelectTrigger className="w-[180px] flex-shrink-0">
                         <SelectValue placeholder="Filter by Branch" />
                     </SelectTrigger>
                     <SelectContent>
@@ -171,7 +234,7 @@ export default function AdminLogsPage() {
                     </SelectContent>
                 </Select>
                  <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className="w-[180px]">
+                    <SelectTrigger className="w-[180px] flex-shrink-0">
                         <SelectValue placeholder="Filter by Type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -180,17 +243,19 @@ export default function AdminLogsPage() {
                         <SelectItem value="Exit">Exit Only</SelectItem>
                     </SelectContent>
                 </Select>
-                <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" className={ (searchTerm || filterBranch !== 'all' || filterType !== 'all') ? 'visible' : 'invisible'}>
+                <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" className={`flex-shrink-0 ${ (searchTerm || filterBranch !== 'all' || filterType !== 'all') ? 'visible' : 'invisible'}`}>
                     <X className="h-4 w-4" />
                 </Button>
                 <div className="flex-grow"></div> {/* Spacer */}
-                 <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm">
-                     <Download className="mr-2 h-4 w-4" /> Export CSV
-                 </Button>
-                 {/* Add Excel export button if needed */}
-                 {/* <Button onClick={() => exportData(filteredLogs, 'excel')} variant="outline" size="sm">
-                     <Download className="mr-2 h-4 w-4" /> Export Excel
-                 </Button> */}
+                 {/* Export Buttons Group */}
+                 <div className="flex gap-2 flex-wrap flex-shrink-0">
+                     <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm">
+                         <Download className="mr-2 h-4 w-4" /> Export CSV
+                     </Button>
+                     <Button onClick={() => exportDataToPdf(filteredLogs, toast)} variant="outline" size="sm">
+                        <FileText className="mr-2 h-4 w-4" /> Export PDF
+                     </Button>
+                 </div>
             </div>
 
           <div className="border rounded-md overflow-hidden">
