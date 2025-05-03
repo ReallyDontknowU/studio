@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, SwitchCamera, X } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, SwitchCamera, X, Eye } from 'lucide-react'; // Added Eye icon
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Image from 'next/image';
@@ -13,13 +13,17 @@ interface BarcodeScannerProps {
   onScanError?: (error: Error) => void;
   scanPrompt?: string;
   disabled?: boolean; // Disables the entire component, including the start button
-  // Props specifically for MANUAL scan mode (keep for flexibility, though not used in Record Entry/Exit)
-  onManualStop?: (imageDataUri: string | null) => void;
-  setCapturedImageUri?: (uri: string | null) => void; // Used in Add Student for preview before submit
-  // Props for controlling AUTO scan mode (used in Record Entry/Exit)
+
+  // Props specifically for MANUAL scan mode (e.g., Add Student)
+  showStopButton?: boolean; // Whether to show the "Stop Scanning" button
+  onManualStop?: (imageDataUri: string | null) => void; // Callback for manual stop
+  setCapturedImageUri?: React.Dispatch<React.SetStateAction<string | null>>; // Used in Add Student for preview before submit
+
+  // Props for controlling AUTO scan mode (e.g., Record Entry/Exit)
   autoScanMode?: boolean;
   isProcessing?: boolean; // Is the parent component busy processing a scan?
   captureInterval?: number;
+  isDetecting?: boolean; // Is the parent component detecting an ID card?
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
@@ -27,13 +31,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   onScanError,
   scanPrompt = 'Position ID card inside the frame',
   disabled = false,
-  // Manual mode props (optional)
+  // Manual mode props
+  showStopButton = false, // Default to false if not provided
   onManualStop,
-  setCapturedImageUri,
-  // Auto mode props (optional)
+  setCapturedImageUri, // This prop is now optional
+  // Auto mode props
   autoScanMode = false,
   isProcessing = false, // Receive processing status from parent
   captureInterval = 1500, // Default capture interval
+  isDetecting = false, // Receive detection status from parent
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -50,6 +56,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
+
+  // Ref to track if cleanup has already been called to prevent redundant calls
+  const cleanupCalledRef = useRef(false);
 
   // --- Event Handlers ---
   const handleVideoError = useCallback((event: Event) => {
@@ -68,15 +77,19 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           }
           console.error(`${logPrefix} Details: Code ${videoError.code}, Message: ${videoError.message}`);
       }
-      if ((event as any)?.message?.includes('Could not start video source') || message.includes('MEDIA_ERR_SRC_NOT_SUPPORTED') || message.includes('MEDIA_ERR_DECODE')) {
-         message = "Could not start video source. Check if the camera is working, connected, and permissions are granted. Try selecting a different camera if available.";
+      // More specific error mapping
+      if (message.includes('MEDIA_ERR_SRC_NOT_SUPPORTED') || message.includes('MEDIA_ERR_DECODE') || (event as any)?.message?.includes('Could not start video source')) {
+         message = "Could not start video source. Check camera connection/permissions. Try selecting a different camera.";
       }
+
       setError(message);
       if (onScanError) onScanError(new Error(message));
       setIsActive(false);
       setIsStarting(false);
       setIsSwitchingCamera(false);
-  }, [onScanError]);
+      cleanupCamera("video error handler"); // Attempt cleanup on video error
+  }, [onScanError]); // Removed cleanupCamera dependency to avoid loop
+
 
   const handleLoadedMetadata = useCallback(() => {
       const video = videoRef.current;
@@ -87,16 +100,22 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const handleVideoPlay = useCallback(() => {
       console.log("[play] Video playback started successfully.");
       setIsActive(true);
-      setError(null);
-      setIsStarting(false);
-      setIsSwitchingCamera(false);
+      setError(null); // Clear error on successful play
+      setIsStarting(false); // No longer starting once playing
+      setIsSwitchingCamera(false); // No longer switching once playing
+      cleanupCalledRef.current = false; // Reset cleanup flag on successful start
   }, []);
 
 
   // --- Cleanup Function ---
   const cleanupCamera = useCallback((caller?: string) => {
     const logPrefix = `[Cleanup ${caller || 'unknown'}]`;
+    if (cleanupCalledRef.current) {
+        console.log(`${logPrefix} Already called, skipping redundant cleanup.`);
+        return;
+    }
     console.log(`${logPrefix} Starting cleanup... Stream ref: ${streamRef.current?.id}`);
+    cleanupCalledRef.current = true; // Set flag immediately
 
     // Clear the auto-scan interval
     if (scanIntervalRef.current) {
@@ -149,23 +168,26 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
        }
     }
 
-    setIsActive(false);
-    setIsStarting(false);
-    setIsSwitchingCamera(false);
+    setIsActive(false); // Ensure camera is marked inactive
+    setIsStarting(false); // Ensure starting state is reset
+    setIsSwitchingCamera(false); // Ensure switching state is reset
 
-    // Clear parent image state ONLY IF in manual mode (setCapturedImageUri is provided)
+    // Clear parent image state ONLY IF the setter function is provided (for manual mode preview)
      try {
          if (typeof setCapturedImageUri === 'function') {
              setCapturedImageUri(null);
-             console.log(`${logPrefix} Called setCapturedImageUri(null) for manual mode preview.`);
+             console.log(`${logPrefix} Called setCapturedImageUri(null).`);
+         } else {
+            // console.log(`${logPrefix} setCapturedImageUri prop not provided or not a function.`);
          }
      } catch (e) {
          console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
      }
 
-
     console.log(`${logPrefix} Cleanup finished.`);
-  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]); // setCapturedImageUri is optional, check needed
+    // Reset flag after a short delay to allow state updates to potentially propagate
+    setTimeout(() => { cleanupCalledRef.current = false; }, 100);
+  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]); // Include setCapturedImageUri dependency
 
 
   // --- Frame Capture ---
@@ -190,9 +212,14 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
 
     try {
+      // Set canvas dimensions based on video's intrinsic size
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+
+      // Draw the current video frame onto the canvas
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Get the image data as a PNG Data URI
       const imageDataUri = canvas.toDataURL('image/png');
       console.log(`${logPrefix} Success. Frame captured. Length: ${imageDataUri.length}`);
       return imageDataUri;
@@ -240,7 +267,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             console.warn(`${logPrefix} Failed to capture frame in interval.`);
           }
         } else {
-            console.log(`${logPrefix} Skipping capture in interval (Not active, starting, switching, or parent is processing).`);
+            // console.log(`${logPrefix} Skipping capture in interval (Not active, starting, switching, or parent is processing).`);
         }
       }, captureInterval);
 
@@ -265,12 +292,16 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [autoScanMode, isActive, isProcessing, isStarting, isSwitchingCamera, captureInterval, captureFrame, onScanSuccess]);
 
 
-  // --- Handle Manual Stop (Only if autoScanMode is false) ---
+  // --- Handle Manual Stop (Only if NOT autoScanMode and handler provided) ---
   const handleManualStopClick = useCallback(() => {
     const logPrefix = "[handleManualStopClick]";
     if (autoScanMode) {
         console.warn(`${logPrefix} Manual stop called in autoScanMode. Ignoring.`);
         return; // Ignore manual stop in auto mode
+    }
+    if (typeof onManualStop !== 'function') {
+        console.warn(`${logPrefix} No onManualStop handler provided. Ignoring.`);
+        return;
     }
     console.log(`${logPrefix} Manual stop requested.`);
 
@@ -286,20 +317,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           setError("Internal component error: Failed to update image state on stop.");
         }
     } else {
-         console.warn(`${logPrefix} setCapturedImageUri prop is not a function during stop.`);
-         // Don't set error if it's just optional and not provided
+         // console.warn(`${logPrefix} setCapturedImageUri prop is not a function during stop.`);
     }
-
 
     cleanupCamera("manual stop"); // Stop the camera stream
 
-    // Call the parent handler with the captured URI (or null) (only if onManualStop provided)
-    if (typeof onManualStop === 'function') {
-      console.log(`${logPrefix} Calling onManualStop with image URI (or null):`, lastFrameUri ? 'Yes' : 'No');
-      onManualStop(lastFrameUri);
-    } else {
-       console.warn(`${logPrefix} onManualStop handler not provided.`);
-    }
+    // Call the parent handler with the captured URI (or null)
+    console.log(`${logPrefix} Calling onManualStop with image URI (or null):`, lastFrameUri ? 'Yes' : 'No');
+    onManualStop(lastFrameUri);
+
   }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri, autoScanMode]); // Added dependencies
 
 
@@ -350,17 +376,18 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     const logPrefix = "[startCamera]";
     const targetDeviceId = deviceId || selectedDeviceId;
     console.log(`${logPrefix} Attempting to start... Target Device ID: ${targetDeviceId}`);
+    cleanupCalledRef.current = false; // Reset cleanup flag on new start attempt
+
 
     if (isStarting || isActive) {
       console.warn(`${logPrefix} Aborted - already starting or active.`);
       return;
     }
-    // Removed check for setCapturedImageUri as it's not required for auto-scan mode
 
     setError(null);
     setHasCameraPermission(null);
     setIsStarting(true);
-    setIsActive(false);
+    setIsActive(false); // Explicitly set inactive while starting
 
      // Clear manual mode preview if function exists
      try {
@@ -369,14 +396,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
          }
      } catch (e) {
        console.error(`${logPrefix} Error calling setCapturedImageUri during start:`, e);
-       // Don't block startup for this optional function error
      }
 
     console.log(`${logPrefix} Performing pre-start cleanup.`);
-    cleanupCamera("startCamera preamble");
-    // Short delay to ensure resources are released
-    await new Promise(resolve => setTimeout(resolve, 150));
-
+    cleanupCamera("startCamera preamble"); // Call cleanup to stop any existing streams/listeners
+    // Short delay to potentially help resource release, might not be strictly necessary
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     const video = videoRef.current;
     if (!video) {
@@ -387,13 +412,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         return;
     }
 
-    console.log(`${logPrefix} Attaching video event listeners before stream request.`);
-    video.removeEventListener('error', handleVideoError);
+    // Re-attach listeners
+    console.log(`${logPrefix} Attaching video event listeners.`);
+    video.removeEventListener('error', handleVideoError); // Remove first to prevent duplicates
     video.removeEventListener('loadedmetadata', handleLoadedMetadata);
     video.removeEventListener('play', handleVideoPlay);
-    video.addEventListener('error', handleVideoError);
+    video.addEventListener('error', handleVideoError, { once: true }); // Use once for error? Maybe not, errors can happen mid-stream
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('play', handleVideoPlay);
+
 
     try {
       console.log(`${logPrefix} Requesting media stream...`);
@@ -401,12 +428,12 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         throw new Error('Camera access (getUserMedia) is not supported by this browser.');
       }
 
-      // Updated constraints: prefer environment (back) camera first
+      // Define constraints
       const constraints: MediaStreamConstraints = {
         audio: false,
         video: targetDeviceId
           ? { deviceId: { exact: targetDeviceId } }
-          : { facingMode: { ideal: "environment" } } // Use ideal for flexibility
+          : { facingMode: { ideal: "environment" } } // Default to back camera ideally
       };
       console.log(`${logPrefix} Using constraints:`, JSON.stringify(constraints));
 
@@ -415,59 +442,55 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err: any) {
           console.error(`${logPrefix} getUserMedia failed with primary constraints:`, err);
-          // If specific device or environment facing mode failed, try any video device as fallback
+          // Fallback logic if specific device or facing mode fails
           if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError' || err.name === 'NotReadableError') {
-              console.warn(`${logPrefix} Failed with primary constraints (${err.name}). Trying default video device.`);
+              console.warn(`${logPrefix} Primary constraints failed (${err.name}). Trying default video device.`);
               try {
                   const fallbackConstraints = { video: true, audio: false };
                   console.log(`${logPrefix} Using fallback constraints:`, JSON.stringify(fallbackConstraints));
                   stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
                   console.log(`${logPrefix} Successfully fell back to default video stream.`);
 
-                   // Update selected device ID if fallback was used and different
-                   const actualDeviceId = stream?.getVideoTracks()[0]?.getSettings()?.deviceId;
-                   if (actualDeviceId && actualDeviceId !== targetDeviceId) {
-                       console.log(`${logPrefix} Fallback stream uses device ID: ${actualDeviceId}. Updating state.`);
-                       setSelectedDeviceId(actualDeviceId);
-                       localStorage.setItem('preferredCameraId', actualDeviceId);
-                       toast({ title: "Camera Switched", description: `Switched to default camera as preferred one was unavailable.`, variant: "default"});
-                   }
-
+                  // Update selected device ID if fallback was used and different
+                  const actualDeviceId = stream?.getVideoTracks()[0]?.getSettings()?.deviceId;
+                  if (actualDeviceId && actualDeviceId !== targetDeviceId) {
+                      console.log(`${logPrefix} Fallback stream uses device ID: ${actualDeviceId}. Updating state.`);
+                      setSelectedDeviceId(actualDeviceId);
+                      localStorage.setItem('preferredCameraId', actualDeviceId);
+                      toast({ title: "Camera Switched", description: `Switched to default camera as preferred one was unavailable.`, variant: "default"});
+                  }
               } catch (fallbackErr: any) {
                   console.error(`${logPrefix} Fallback to default video also failed. Re-throwing original error. Fallback Error:`, fallbackErr);
-                  // Re-throw the *original* error for more specific feedback if possible
-                  throw err;
+                  throw err; // Re-throw the original error for better feedback
               }
           } else {
-              // If it wasn't one of the expected errors for device switching, throw it directly
-              throw err;
+              throw err; // Re-throw other errors directly
           }
       }
 
 
       console.log(`${logPrefix} Stream obtained:`, stream.id);
       setHasCameraPermission(true);
-      streamRef.current = stream;
+      streamRef.current = stream; // Store the active stream
 
-      const currentVideo = videoRef.current; // Re-check ref in case component unmounted
+      const currentVideo = videoRef.current; // Re-check ref
       if (!currentVideo) {
           throw new Error("Video element reference became unavailable after stream acquisition.");
       }
 
       // Ensure no old stream is attached
       if (currentVideo.srcObject && currentVideo.srcObject !== stream) {
-        console.warn(`${logPrefix} Detaching existing srcObject before setting new one.`);
+        console.warn(`${logPrefix} Detaching existing different srcObject before setting new one.`);
         (currentVideo.srcObject as MediaStream).getTracks().forEach(track => track.stop());
       }
 
       currentVideo.srcObject = stream;
       currentVideo.muted = true;
-      currentVideo.playsInline = true; // Important for iOS Safari
-      console.log(`${logPrefix} Set video srcObject.`);
+      currentVideo.playsInline = true;
+      console.log(`${logPrefix} Set video srcObject to stream ID: ${stream.id}`);
 
       console.log(`${logPrefix} Attempting video.play()...`);
-      await currentVideo.play();
-      // Success: 'play' event listener will set isActive = true and isStarting = false
+      await currentVideo.play(); // The 'play' event handler will set isActive and reset isStarting
 
     } catch (err: any) {
         console.error(`${logPrefix} Error during camera start or playback:`, err);
@@ -481,34 +504,26 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
             message = 'Selected camera not found or unavailable. Try another camera or ensure it is connected.';
         } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError' || err.name === 'AbortError') {
-             message = `Camera hardware error (${err.name}). It might be in use by another application, disconnected, or malfunctioning. Try closing other apps/tabs or selecting a different camera.`;
+             message = `Camera hardware error (${err.name}). It might be in use by another app, disconnected, or malfunctioning. Try closing other apps/tabs or selecting a different camera.`;
         } else if (err.name === 'OverconstrainedError') {
-            message = `Camera does not support requested settings (e.g., resolution, facing mode). Try another camera. Details: ${err.message}`;
+            message = `Camera does not support requested settings. Try another camera. Details: ${err.message}`;
         } else if (err.name === 'SecurityError') {
             message = 'Camera access denied due to security settings (requires HTTPS or localhost).';
             permissionRelated = true;
         } else if (err.name === 'TypeError' && err.message?.includes('getUserMedia')) {
              message = 'Camera access (getUserMedia) is not supported by this browser or context (e.g., HTTP).';
-        } else if (err.message?.startsWith('Video playback failed:')) {
-             // Use the specific message from video error handler if available
-             message = error || err.message; // Prefer error state message if already set
-         }
-         else if (err.message?.includes('Could not start video source')) {
-              message = 'Could not start video source. Check camera connection and permissions.';
-         }
-
+        }
 
         setError(message);
-        setHasCameraPermission(permissionRelated ? false : null); // Set to null if not explicitly denied
+        setHasCameraPermission(permissionRelated ? false : null);
         toast({ title: 'Camera Start Error', description: message, variant: 'destructive', duration: 8000 });
         if (onScanError) onScanError(err instanceof Error ? err : new Error(message));
-        cleanupCamera("startCamera error handler"); // Cleanup immediately on error
-    } finally {
-      // Don't set isStarting = false here; the 'play' event handles it on success.
-      // If an error occurred, cleanupCamera sets it false.
-      console.log(`${logPrefix} Finished start attempt. State:`, { isStarting: isStarting, isActive: isActive, error: error }); // Log relevant state
+        cleanupCamera("startCamera error handler"); // Ensure cleanup happens on error
     }
-  }, [selectedDeviceId, isStarting, isActive, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay, error, setCapturedImageUri]); // Added error and setCapturedImageUri
+     // IMPORTANT: Do not set isStarting=false here. It's handled by the 'play' event listener on success,
+     // or by the cleanupCamera function on error. This prevents race conditions.
+     console.log(`${logPrefix} Finished start attempt. State:`, { isStarting: isStarting, isActive: isActive, error: error });
+  }, [selectedDeviceId, isStarting, isActive, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
 
 
   // Effect to enumerate devices on mount
@@ -516,17 +531,17 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       enumerateDevices();
   }, [enumerateDevices]);
 
-  // Effect to cleanup on error or permission denial (only if not actively starting)
+  // Effect to cleanup on error or permission denial (only if not actively starting/switching)
   useEffect(() => {
-      if (error && !isStarting) {
+      if (error && !isStarting && !isSwitchingCamera) {
           console.log("[ErrorEffect] Cleaning up camera due to error state change:", error);
           cleanupCamera("error effect");
       }
-      if (hasCameraPermission === false && !isStarting) {
+      if (hasCameraPermission === false && !isStarting && !isSwitchingCamera) {
          console.log("[PermissionEffect] Cleaning up camera due to permission denial.");
          cleanupCamera("permission denied effect");
       }
-  }, [error, hasCameraPermission, isStarting, cleanupCamera]);
+  }, [error, hasCameraPermission, isStarting, isSwitchingCamera, cleanupCamera]);
 
 
   // --- Unmount Cleanup ---
@@ -566,12 +581,10 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     localStorage.setItem('preferredCameraId', newDeviceId);
 
     // Restart the camera with the new device ID
-    // cleanupCamera ensures the old stream is stopped before starting new
     cleanupCamera("camera switch");
     // Use a timeout to allow resources to fully release before restarting
     setTimeout(() => {
       startCamera(newDeviceId);
-      // setIsSwitchingCamera(false); // Moved to startCamera's success/error handling
     }, 200); // Adjust delay if needed
 
   }, [selectedDeviceId, isSwitchingCamera, isStarting, startCamera, cleanupCamera]);
@@ -593,7 +606,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                    disabled={isStarting || isSwitchingCamera || disabled}
                >
                    <SelectTrigger className="w-full">
-                       <SelectValue placeholder="Select Camera" />
+                        <SelectValue placeholder="Select Camera" />
                    </SelectTrigger>
                    <SelectContent>
                        {videoDevices.map((device, index) => (
@@ -613,105 +626,112 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         )}
 
       {/* Camera/Video Display Area */}
-      <div className={`w-full aspect-[2/3] border rounded-lg overflow-hidden shadow-md bg-muted relative ${isActive || isStarting || error || hasCameraPermission === false ? 'block' : 'hidden'}`}>
-        {/* Video element container */}
-        <div className={`relative w-full h-full ${isActive || isStarting ? 'block' : 'hidden'}`}>
-            <video
-                ref={videoRef}
-                className={`w-full h-full object-cover block bg-black transition-opacity duration-300 ${isActive ? 'opacity-100' : 'opacity-0'}`}
-                playsInline
-                muted
-                autoPlay // Added autoPlay
-                aria-label="Camera feed for ID card capture"
-            />
-            {/* Loading Overlay (Starting or Switching) */}
-            {(isStarting || isSwitchingCamera) && !error && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white z-10 pointer-events-none">
-                    <Loader2 className="h-8 w-8 animate-spin mb-2" />
-                    <p className="text-sm text-muted-foreground">{isSwitchingCamera ? 'Switching camera...' : 'Starting camera...'}</p>
-                </div>
-            )}
-            {/* Scan Guidance Overlay - Adjusted for vertical ID */}
-            {isActive && !isStarting && !isSwitchingCamera && (
-                <div className="absolute inset-0 pointer-events-none z-5">
-                     {/* Vertical rectangle */}
-                    <div className="absolute inset-x-[10%] inset-y-[5%] border-2 border-accent/50 rounded pointer-events-none" aria-hidden="true"></div>
-                    <p className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-center text-xs text-white bg-black/50 px-2 py-1 rounded">
-                    {scanPrompt}
-                    </p>
-                     {/* Scanning indicator for auto mode (only when NOT processing) */}
-                     {autoScanMode && !isProcessing && (
-                        <ScanLine className="absolute top-4 right-4 h-5 w-5 text-green-400 animate-pulse" />
-                     )}
-                     {/* Processing indicator (shows when parent sets isProcessing=true) */}
-                     {isProcessing && (
-                        <div className="absolute top-4 left-4 flex items-center gap-1 text-xs text-white bg-black/60 px-2 py-0.5 rounded">
-                           <Loader2 className="h-3 w-3 animate-spin" />
-                           Processing...
+       <div className={`w-full aspect-[2/3] border rounded-lg overflow-hidden shadow-md bg-muted relative ${isActive || isStarting || error || hasCameraPermission === false ? 'block' : 'hidden'}`}>
+         {/* Video element container */}
+         <div className={`relative w-full h-full ${isActive || isStarting ? 'block' : 'hidden'}`}>
+             <video
+                 ref={videoRef}
+                 className={`w-full h-full object-cover block bg-black transition-opacity duration-300 ${isActive ? 'opacity-100' : 'opacity-0'}`}
+                 playsInline
+                 muted
+                 autoPlay
+                 aria-label="Camera feed for ID card capture"
+             />
+             {/* Loading Overlay (Starting or Switching) */}
+             {(isStarting || isSwitchingCamera) && !error && (
+                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white z-10 pointer-events-none">
+                     <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                     <p className="text-sm text-muted-foreground">{isSwitchingCamera ? 'Switching camera...' : 'Starting camera...'}</p>
+                 </div>
+             )}
+             {/* Scan Guidance Overlay - Adjusted for vertical ID */}
+             {isActive && !isStarting && !isSwitchingCamera && (
+                 <div className="absolute inset-0 pointer-events-none z-5">
+                      {/* Vertical rectangle */}
+                     <div className="absolute inset-x-[10%] inset-y-[5%] border-2 border-accent/50 rounded pointer-events-none" aria-hidden="true"></div>
+                     <p className="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-center text-xs text-white bg-black/50 px-2 py-1 rounded">
+                     {scanPrompt}
+                     </p>
+                      {/* Scanning indicator for auto mode (only when NOT processing) */}
+                      {autoScanMode && !isProcessing && (
+                         <ScanLine className="absolute top-4 right-4 h-5 w-5 text-green-400 animate-pulse" />
+                      )}
+                       {/* Detecting indicator (shows when parent sets isDetecting=true) */}
+                      {isDetecting && (
+                        <div className="absolute top-4 left-4 flex items-center gap-1 text-xs text-white bg-blue-900/70 px-2 py-0.5 rounded">
+                            <Eye className="h-3 w-3 animate-pulse" />
+                            Detecting...
                         </div>
-                     )}
-                </div>
-            )}
-        </div>
+                      )}
+                      {/* Processing indicator (shows when parent sets isProcessing=true and not detecting) */}
+                      {isProcessing && !isDetecting && (
+                         <div className="absolute top-4 left-4 flex items-center gap-1 text-xs text-white bg-black/60 px-2 py-0.5 rounded">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Processing...
+                         </div>
+                      )}
+                 </div>
+             )}
+         </div>
 
-        {/* Permission Denied Overlay */}
-        {hasCameraPermission === false && !isStarting && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
-                <Alert variant="destructive" className="w-full max-w-xs">
-                   <div className="flex justify-between items-start">
-                       <div>
-                            <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
-                            <AlertTitle className="inline-block">Camera Access Denied</AlertTitle>
-                            <AlertDescription>
-                                Please allow camera access in your browser settings and refresh the page.
-                            </AlertDescription>
-                        </div>
-                    </div>
-                </Alert>
-            </div>
-        )}
-        {/* General Error Overlay */}
-        {error && !isStarting && !isSwitchingCamera && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
-                <Alert variant="destructive" className="w-full max-w-xs">
-                   <div className="flex justify-between items-start">
-                       <div>
-                            <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
-                            <AlertTitle className="inline-block">Scanner Error</AlertTitle>
-                            <AlertDescription>{error}</AlertDescription>
-                        </div>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:bg-destructive/10" onClick={clearError}>
-                           <X className="h-4 w-4" />
-                           <span className="sr-only">Clear Error</span>
-                        </Button>
-                    </div>
-                    <Button onClick={handleInitialStartClick} variant="secondary" size="sm" className="mt-2 text-xs" disabled={isStarting}>
-                        <RefreshCw className="mr-1 h-3 w-3" /> Try Again
-                    </Button>
-                </Alert>
-            </div>
-        )}
-        {/* Hidden canvas for capturing frames */}
-        <canvas ref={canvasRef} style={{ display: 'none' }} aria-hidden="true"></canvas>
-      </div>
+         {/* Permission Denied Overlay */}
+         {hasCameraPermission === false && !isStarting && (
+             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
+                 <Alert variant="destructive" className="w-full max-w-xs">
+                    <div className="flex justify-between items-start">
+                        <div>
+                             <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
+                             <AlertTitle className="inline-block">Camera Access Denied</AlertTitle>
+                             <AlertDescription>
+                                 Please allow camera access in your browser settings and refresh the page.
+                             </AlertDescription>
+                         </div>
+                     </div>
+                 </Alert>
+             </div>
+         )}
+         {/* General Error Overlay */}
+         {error && !isStarting && !isSwitchingCamera && (
+             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
+                 <Alert variant="destructive" className="w-full max-w-xs">
+                    <div className="flex justify-between items-start">
+                        <div>
+                             <AlertCircle className="h-4 w-4 inline-block mr-1 -translate-y-0.5" />
+                             <AlertTitle className="inline-block">Scanner Error</AlertTitle>
+                             <AlertDescription>{error}</AlertDescription>
+                         </div>
+                         <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:bg-destructive/10" onClick={clearError}>
+                            <X className="h-4 w-4" />
+                            <span className="sr-only">Clear Error</span>
+                         </Button>
+                     </div>
+                     <Button onClick={handleInitialStartClick} variant="secondary" size="sm" className="mt-2 text-xs" disabled={isStarting}>
+                         <RefreshCw className="mr-1 h-3 w-3" /> Try Again
+                     </Button>
+                 </Alert>
+             </div>
+         )}
+         {/* Hidden canvas for capturing frames */}
+         <canvas ref={canvasRef} style={{ display: 'none' }} aria-hidden="true"></canvas>
+       </div>
 
        {/* Control Buttons */}
-      <div className="flex gap-2">
-        {!isActive && !isStarting && hasCameraPermission !== false && !error ? (
-          // Show "Start Camera" button if inactive and no errors/denial
-          <Button onClick={handleInitialStartClick} disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
-            <Camera className="mr-2 h-4 w-4" /> Start Camera
-          </Button>
-        ) :
-        isActive && !isStarting && !isSwitchingCamera && !autoScanMode && onManualStop ? (
-           // Show "Stop Scanning" button ONLY if active, NOT autoMode, AND onManualStop handler is provided
-            <Button onClick={handleManualStopClick} variant="destructive" disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
-              <StopCircle className="mr-2 h-4 w-4" /> Stop Scanning
-            </Button>
-        ) : null // No buttons needed while starting, switching, error, denied, or in autoScanMode
-        }
-      </div>
-    </div>
+       <div className="flex gap-2">
+         {!isActive && !isStarting && hasCameraPermission !== false && !error ? (
+           // Show "Start Camera" button if inactive and no errors/denial
+           <Button onClick={handleInitialStartClick} disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
+             <Camera className="mr-2 h-4 w-4" /> Start Camera
+           </Button>
+         ) :
+         isActive && !isStarting && !isSwitchingCamera && !autoScanMode && showStopButton && onManualStop ? (
+            // Show "Stop Scanning" button ONLY if active, NOT autoMode, showStopButton is true, AND onManualStop handler is provided
+             <Button onClick={handleManualStopClick} variant="destructive" disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
+               <StopCircle className="mr-2 h-4 w-4" /> Stop Scanning
+             </Button>
+         ) : null // No buttons needed while starting, switching, error, denied, or in autoScanMode without stop button enabled
+         }
+       </div>
+     </div>
   );
 };
 

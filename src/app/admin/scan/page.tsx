@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
+import { detectIdCard } from '@/ai/flows/detect-id-card-flow'; // Import the new detection flow
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw, ScanLine } from 'lucide-react';
@@ -134,6 +135,7 @@ const playSound = (type: 'entry' | 'exit' | 'error') => {
 export default function AdminScanPage() {
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false); // Unified processing state (blocks new scans/manual submits)
+  const [isDetecting, setIsDetecting] = useState(false); // State for ID card detection phase
   const [isExtracting, setIsExtracting] = useState(false); // Specific state for AI extraction indicator
   const [scanSessionError, setScanSessionError] = useState<string | null>(null);
   const [lastScanResult, setLastScanResult] = useState<LastScanResultType | null>(null);
@@ -146,8 +148,8 @@ export default function AdminScanPage() {
         const logPrefix = `[sharedProcessLogic-${source}]`;
         console.log(`${logPrefix} Processing ID: ${studentId}`);
         // setIsProcessing(true); // Moved: set by caller (processCapturedImage/handleManualSubmit)
-        setScanSessionError(null); // Clear session error
-        setLastScanResult(null); // Clear previous result immediately
+        // setScanSessionError(null); // Moved: Cleared by caller
+        // setLastScanResult(null); // Moved: Cleared by caller
         setCapturedImageUri(source === 'scan' ? scannedImageUri : null); // Show scanned image for result
 
         // Clear any existing result display timeout
@@ -235,11 +237,12 @@ export default function AdminScanPage() {
         } finally {
              console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
              setLastScanResult(resultState); // Show the result card
+             setIsDetecting(false); // Ensure detection indicator is off
+             setIsExtracting(false); // Ensure extraction indicator is off
 
              // Set timeout to clear the result card and allow next scan/submit
              processingTimeoutRef.current = setTimeout(() => {
                 setIsProcessing(false); // Allow next scan/submit
-                setIsExtracting(false); // Ensure extraction indicator is off
                 setLastScanResult(null); // Clear the result card
                 setCapturedImageUri(null); // Clear the preview image
                 console.log(`${logPrefix} Processing timeout finished, ready for next action.`);
@@ -262,41 +265,55 @@ export default function AdminScanPage() {
     }
 
     console.log(`${logPrefix} Initiated with image data (length: ${imageDataUri.length})`);
-    setIsProcessing(true); // Set generic processing state (will prevent further captures/manual submits)
-    setIsExtracting(true); // Start extraction indicator
+    setIsProcessing(true); // Set generic processing state
+    setIsDetecting(true); // Start ID card detection indicator
+    setIsExtracting(false); // Ensure extraction indicator is off initially
     setScanSessionError(null); // Clear session error
-    // Do not clear lastScanResult here, let sharedProcessLogic handle it
-    // setCapturedImageUri(imageDataUri); // Moved to sharedProcessLogic
+    setLastScanResult(null); // Clear previous result immediately
+    setCapturedImageUri(imageDataUri); // Show captured image during processing
 
     try {
-      console.log(`${logPrefix} Calling extractBarcodeData...`);
+      console.log(`${logPrefix} Calling detectIdCard...`);
+      const detectionResult = await detectIdCard({ imageDataUri });
+      setIsDetecting(false); // End ID detection indicator
+      console.log(`${logPrefix} ID card detection result:`, detectionResult);
+
+      if (!detectionResult || !detectionResult.isIdCard) {
+          console.log(`${logPrefix} Image does not appear to be an ID card. Skipping further processing.`);
+          // Reset processing state quickly to allow next scan attempt without long delay or error message
+          setIsProcessing(false);
+          setCapturedImageUri(null); // Clear the non-ID image preview
+          // Do NOT set LastScanResult or play error sound for non-ID images
+          return; // Exit early
+      }
+
+      // ID card detected, proceed to extraction
+      console.log(`${logPrefix} ID card detected. Calling extractBarcodeData...`);
+      setIsExtracting(true); // Start barcode extraction indicator
       const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
       console.log(`${logPrefix} Extraction result:`, extractionResult);
       setIsExtracting(false); // End extraction indicator (BEFORE calling shared logic)
 
       if (!extractionResult || !extractionResult.idNumber || extractionResult.idNumber.trim() === "") {
-          // If no ID is found, don't treat it as an error. Silently ignore and allow next scan.
-          console.log(`${logPrefix} No ID number extracted. Skipping processing.`);
-          // Reset processing state quickly to allow next scan attempt without long delay or error message
-          setIsProcessing(false);
-          setIsExtracting(false); // Ensure it's off
-          // Do NOT set LastScanResult or play error sound
-          return; // Exit early
+          // If ID card detected but no ID found, show a specific error
+          console.log(`${logPrefix} ID card detected, but no ID number extracted.`);
+          throw new Error("Could not extract Student ID number from the detected card.");
       }
 
       const extractedId = extractionResult.idNumber.trim().toLowerCase();
       // Call shared logic which will handle further processing, success/error display, and timeout
       await sharedProcessLogic(extractedId, 'scan', imageDataUri);
 
-    } catch (error: any) { // Catch errors specifically from the extractBarcodeData call itself
-      console.error(`${logPrefix} Error during extraction API call:`, error);
-      const errorMessage = error.message || 'An unknown error during barcode extraction API call.';
-      toast({ title: 'Extraction Error', description: errorMessage, variant: 'destructive' });
+    } catch (error: any) { // Catch errors from detection, extraction, or shared logic call
+      console.error(`${logPrefix} Error during image processing:`, error);
+      const errorMessage = error.message || 'An unknown error during image processing.';
+      toast({ title: 'Processing Error', description: errorMessage, variant: 'destructive' });
       playSound('error');
-      setIsExtracting(false); // Ensure indicator is off on error
+      setIsDetecting(false); // Ensure detection indicator is off on error
+      setIsExtracting(false); // Ensure extraction indicator is off on error
 
       setLastScanResult({
-          student: { id: "Unknown", name: "Extraction Failed" },
+          student: { id: "Unknown", name: "Processing Failed" },
           log: { type: 'Error', timestamp: new Date(), message: errorMessage },
           scannedImageUri: imageDataUri,
           source: 'scan'
@@ -308,11 +325,12 @@ export default function AdminScanPage() {
             setIsProcessing(false); // Allow next action
             setLastScanResult(null); // Clear result card
             setCapturedImageUri(null); // Clear preview image
-            console.log(`${logPrefix} Extraction error timeout finished.`);
+            console.log(`${logPrefix} Processing error timeout finished.`);
             processingTimeoutRef.current = null;
       }, 5000); // Longer display for error
     }
-    // sharedProcessLogic now handles the final state reset (setIsProcessing(false)) via its own timeout
+    // sharedProcessLogic now handles the final state reset (setIsProcessing(false)) via its own timeout if successful
+    // If an error occurred here, the timeout above handles the reset.
   }, [toast, isProcessing, sharedProcessLogic]);
 
 
@@ -329,6 +347,7 @@ export default function AdminScanPage() {
     });
     playSound('error');
     setIsProcessing(false); // Ensure processing is stopped on scanner error
+    setIsDetecting(false);
     setIsExtracting(false);
   }, [toast]);
 
@@ -347,6 +366,8 @@ export default function AdminScanPage() {
           return;
       }
       setIsProcessing(true); // Set processing flag immediately
+      setScanSessionError(null); // Clear any previous scan error
+      setLastScanResult(null); // Clear previous result
       sharedProcessLogic(trimmedId, 'manual');
       // sharedProcessLogic now handles resetting isProcessing via timeout
   }, [manualStudentId, isProcessing, sharedProcessLogic, toast]);
@@ -361,6 +382,7 @@ export default function AdminScanPage() {
             processingTimeoutRef.current = null;
        }
        setIsProcessing(false); // Immediately allow new actions if status cleared manually
+       setIsDetecting(false);
        setIsExtracting(false);
    }
 
@@ -409,52 +431,61 @@ export default function AdminScanPage() {
           <div className="w-full">
                <BarcodeScanner
                  // Pass necessary props for automatic scanning
-                 onScanSuccess={processCapturedImage}
+                 onScanSuccess={processCapturedImage} // Pass the updated handler
                  onScanError={handleScannerError}
                  scanPrompt="Position ID card in frame..."
                  autoScanMode={true} // Enable auto scanning
                  isProcessing={isProcessing} // Pass processing status to scanner to pause capture
                  captureInterval={1500} // Capture frame every 1.5 seconds (adjust as needed)
                  // setCapturedImageUri is NOT needed for auto-scan processing, only for displaying final result image
-                 // setCapturedImageUri={setCapturedImageUri} // REMOVED
-                 // onManualStop is not needed in autoScanMode
                  // disabled prop could be used to completely disable scanner if needed
+                 // showStopButton={false} // Explicitly hide stop button
+                 // Pass isDetecting state to scanner for visual feedback
+                 isDetecting={isDetecting}
                />
           </div>
 
           {/* Last Scan/Manual Result Display */}
-          {lastScanResult && ( // Show result card when lastScanResult is set
+          {/* Show result card OR processing indicators */}
+          {(isProcessing || lastScanResult) && (
             <Card className={`w-full max-w-md mt-4 border-2 ${
-              lastScanResult.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
-              lastScanResult.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
-              'border-red-500 bg-red-500/10'
-            } ${lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? '!border-yellow-500 !bg-yellow-500/10' : ''}`}>
+              // Style based on the final result OR indicate processing state
+              !isProcessing && lastScanResult?.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
+              !isProcessing && lastScanResult?.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
+              !isProcessing && lastScanResult?.log.type === 'Exit' ? 'border-red-500 bg-red-500/10' :
+              'border-blue-500 bg-blue-500/10' // Default border while processing
+            } ${!isProcessing && lastScanResult?.imageMatch === false && lastScanResult?.log.type !== 'Error' ? '!border-yellow-500 !bg-yellow-500/10' : ''}`}>
               <CardHeader>
                  <div className="flex justify-between items-start">
                     <CardTitle className="flex items-center gap-2 text-lg">
-                      {isExtracting && <Loader2 className="h-5 w-5 animate-spin" />}
-                      {!isExtracting && lastScanResult.log.type === 'Error' && <AlertCircle className="text-destructive" />}
-                      {!isExtracting && lastScanResult.log.type === 'Entry' && <LogIn className="text-green-600" />}
-                      {!isExtracting && lastScanResult.log.type === 'Exit' && <LogOut className="text-red-600" />}
+                      {isDetecting && <Loader2 className="h-5 w-5 animate-spin text-blue-600" />}
+                      {isExtracting && <Loader2 className="h-5 w-5 animate-spin text-purple-600" />}
+                      {!isProcessing && lastScanResult?.log.type === 'Error' && <AlertCircle className="text-destructive" />}
+                      {!isProcessing && lastScanResult?.log.type === 'Entry' && <LogIn className="text-green-600" />}
+                      {!isProcessing && lastScanResult?.log.type === 'Exit' && <LogOut className="text-red-600" />}
 
-                      {isExtracting ? 'Processing...' :
-                       lastScanResult.log.type === 'Error' ? 'Processing Error' :
-                       lastScanResult.log.type === 'Entry' ? 'Entry Recorded' :
-                       'Exit Recorded'}
+                      {isDetecting ? 'Detecting ID...' :
+                       isExtracting ? 'Extracting ID...' :
+                       !isProcessing && lastScanResult?.log.type === 'Error' ? 'Processing Error' :
+                       !isProcessing && lastScanResult?.log.type === 'Entry' ? 'Entry Recorded' :
+                       !isProcessing && lastScanResult?.log.type === 'Exit' ? 'Exit Recorded' :
+                       'Processing...'} {/* Fallback title */}
                     </CardTitle>
                     <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:bg-muted/50" onClick={clearStatus}>
                         <X className="h-4 w-4" />
                         <span className="sr-only">Clear Status</span>
                     </Button>
                 </div>
-                {!isExtracting && (
+                {/* Show description only when processing is finished */}
+                {!isProcessing && lastScanResult && (
                   <CardDescription>
                    {lastScanResult.log.type === 'Error' && lastScanResult.log.message ? lastScanResult.log.message :
                       lastScanResult.log.timestamp ? `Recorded Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : "Details unavailable"}
                   </CardDescription>
                 )}
               </CardHeader>
-              {!isExtracting && (
+               {/* Show content only when processing is finished */}
+              {!isProcessing && lastScanResult && (
                 <CardContent className="text-sm space-y-3">
                   {/* Scanned Image Preview */}
                   {lastScanResult.source === 'scan' && capturedImageUri && (
@@ -512,7 +543,6 @@ export default function AdminScanPage() {
                        <span className="sr-only">Clear Error</span>
                    </Button>
                </div>
-               {/* Removed Try Again button as autoScanMode implies continuous trying */}
             </Alert>
           )}
         </CardContent>
