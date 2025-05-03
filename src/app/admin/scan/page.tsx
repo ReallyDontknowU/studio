@@ -104,7 +104,7 @@ if (typeof window !== 'undefined') {
     entryAudio = new Audio('/sounds/entry_success.mp3');
     exitAudio = new Audio('/sounds/exit_success.mp3');
     errorAudio = new Audio('/sounds/error.mp3');
-    processingAudio = new Audio('/sounds/processing.mp3'); // Load processing sound
+    processingAudio = new Audio('/sounds/processing_tone.mp3'); // Updated filename
 
     entryAudio.preload = 'auto';
     exitAudio.preload = 'auto';
