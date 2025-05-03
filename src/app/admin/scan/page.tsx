@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -7,7 +8,7 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send } from 'lucide-react'; // Added Send for manual entry
+import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X } from 'lucide-react'; // Added Send for manual entry, X for clearing errors
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -70,53 +71,58 @@ const compareImagesRoughly = (imageUri1?: string, imageUri2?: string): boolean |
     console.log(`${logPrefix} Images are identical strings.`);
     return true;
   }
-  const lengthThreshold = Math.max(imageUri1.length, imageUri2.length) * 0.1;
+  // Check lengths - significant difference implies mismatch
+  const lengthThreshold = Math.max(imageUri1.length, imageUri2.length) * 0.05; // 5% tolerance
   if (Math.abs(imageUri1.length - imageUri2.length) > lengthThreshold) {
-    console.log(`${logPrefix} Significant length difference. Likely mismatch.`);
+    console.log(`${logPrefix} Significant length difference (${imageUri1.length} vs ${imageUri2.length}). Likely mismatch.`);
     return false;
   }
-  const segmentLength = Math.min(500, Math.floor(imageUri1.length / 2), Math.floor(imageUri2.length / 2));
+  // Compare end segments for rough similarity
+  const segmentLength = Math.min(500, Math.floor(imageUri1.length * 0.1), Math.floor(imageUri2.length * 0.1)); // 10% or max 500 chars
   if (segmentLength < 50) {
     console.log(`${logPrefix} Images too small for reliable segment comparison.`);
-    return undefined;
+    return undefined; // Too small to be sure
   }
   const segment1 = imageUri1.substring(imageUri1.length - segmentLength);
   const segment2 = imageUri2.substring(imageUri2.length - segmentLength);
   const match = segment1 === segment2;
-  console.log(`${logPrefix} Segment comparison result: ${match}`);
+  console.log(`${logPrefix} Segment comparison result (last ${segmentLength} chars): ${match}`);
   return match;
+}
+
+interface LastScanResultType {
+    student: Partial<Student>;
+    log: Partial<EntryLog> & { type: EntryType | 'Error'; message?: string }; // Explicitly add message for error type
+    scannedImageUri?: string; // Keep for scan results
+    imageMatch?: boolean; // Keep for scan results
+    source: 'scan' | 'manual'; // Track source of the result
 }
 
 export default function AdminScanPage() {
   const { toast } = useToast();
-  const [isProcessing, setIsProcessing] = useState(false); // Generic processing state
+  const [isProcessing, setIsProcessing] = useState(false); // Generic processing state for both scan and manual
   const [scanSessionError, setScanSessionError] = useState<string | null>(null);
-   const [lastScanResult, setLastScanResult] = useState<{
-        student: Partial<Student>;
-        log: Partial<EntryLog> & { type: EntryType | 'Error'; message?: string }; // Explicitly add message for error type
-        scannedImageUri?: string; // Keep for scan results
-        imageMatch?: boolean; // Keep for scan results
-        source: 'scan' | 'manual'; // Track source of the result
-    } | null>(null);
+  const [lastScanResult, setLastScanResult] = useState<LastScanResultType | null>(null);
 
 
-  const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null); // For storing single captured image
+  const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null); // For storing single captured image from scanner
   const [isScannerActive, setIsScannerActive] = useState(false); // Track if scanner component should be visible/active
-  const [isExtracting, setIsExtracting] = useState(false); // Track AI barcode extraction
+  const [isExtracting, setIsExtracting] = useState(false); // Track AI barcode extraction (part of scan processing)
   const [manualStudentId, setManualStudentId] = useState(''); // State for manual ID input
 
   const sharedProcessLogic = useCallback(async (studentId: string, source: 'scan' | 'manual', scannedImageUri?: string) => {
         const logPrefix = `[sharedProcessLogic-${source}]`;
         console.log(`${logPrefix} Processing ID: ${studentId}`);
-        setIsProcessing(true);
-        setScanSessionError(null);
-        setLastScanResult(null); // Clear previous result
+        setIsProcessing(true); // Set generic processing state
+        setScanSessionError(null); // Clear previous session errors
+        setLastScanResult(null); // Clear previous visual result
+        // Don't clear capturedImageUri here, let it display until next scan starts
 
         let student: Student | null = null;
         let imageMatchResult: boolean | undefined = undefined;
         const now = new Date();
         let processSuccessful = false;
-        let resultState: typeof lastScanResult = null;
+        let resultState: LastScanResultType | null = null;
 
         try {
             student = getStudentById(studentId);
@@ -125,37 +131,42 @@ export default function AdminScanPage() {
                 throw new Error(`Student with ID ${studentId.toUpperCase()} not found. Please register first.`);
             }
 
-            // Image comparison only relevant for 'scan' source
-            if (source === 'scan' && scannedImageUri) {
-                if (student.idCardImageUri) {
-                    imageMatchResult = compareImagesRoughly(student.idCardImageUri, scannedImageUri);
-                    console.log(`${logPrefix} Image comparison for ${student.name}: ${imageMatchResult}`);
-                    if (imageMatchResult === false) {
-                        toast({
-                            title: "Image Mismatch Warning",
-                            description: `Scanned ID image may differ from the registered image for ${student.name}. Please verify student identity.`,
-                            variant: "destructive", duration: 7000,
-                        });
-                    } else if (imageMatchResult === true) {
-                        console.log(`${logPrefix} Image match confirmed for ${student.name}.`);
-                    } else {
-                        console.log(`${logPrefix} Image comparison inconclusive for ${student.name}.`);
-                        toast({
-                            title: "Info: Image Comparison",
-                            description: `Could not reliably compare scanned image with stored image for ${student.name}.`,
-                            variant: "default", duration: 4000,
-                        });
-                    }
-                } else {
-                    console.log(`${logPrefix} No registered ID card image found for ${student.name}.`);
-                    imageMatchResult = undefined;
+            // Image comparison only relevant for 'scan' source with both images available
+            if (source === 'scan' && scannedImageUri && student.idCardImageUri) {
+                imageMatchResult = compareImagesRoughly(student.idCardImageUri, scannedImageUri);
+                console.log(`${logPrefix} Image comparison for ${student.name}: ${imageMatchResult}`);
+                if (imageMatchResult === false) {
                     toast({
-                        title: "Info: No Registered Image",
-                        description: `No ID image on file for ${student.name} to compare against. Consider updating student record.`,
-                        variant: "default", duration: 5000,
+                        title: "Image Mismatch Warning",
+                        description: `Scanned ID image may differ from the registered image for ${student.name}. Please verify student identity.`,
+                        variant: "destructive", duration: 7000,
+                    });
+                } else if (imageMatchResult === true) {
+                    console.log(`${logPrefix} Image match confirmed for ${student.name}.`);
+                     toast({
+                        title: "Image Match Confirmed",
+                        description: `Scanned image matches registered image for ${student.name}.`,
+                        variant: "default", duration: 3000,
+                    });
+                } else { // undefined case
+                    console.log(`${logPrefix} Image comparison inconclusive for ${student.name}.`);
+                    toast({
+                        title: "Info: Image Comparison",
+                        description: `Could not reliably compare scanned image with stored image for ${student.name}.`,
+                        variant: "default", duration: 4000,
                     });
                 }
+            } else if (source === 'scan' && !student.idCardImageUri) {
+                // Scan occurred but no registered image to compare against
+                console.log(`${logPrefix} No registered ID card image found for ${student.name}.`);
+                imageMatchResult = undefined;
+                toast({
+                    title: "Info: No Registered Image",
+                    description: `No ID image on file for ${student.name} to compare against. Consider updating student record.`,
+                    variant: "default", duration: 5000,
+                });
             }
+
 
             // Determine Entry/Exit and check rate limit
             const lastLog = getLastLogForStudent(studentId);
@@ -190,8 +201,9 @@ export default function AdminScanPage() {
             resultState = {
                 student,
                 log: newLog,
-                scannedImageUri: source === 'scan' ? scannedImageUri : undefined, // Only include image for scan
-                imageMatch: source === 'scan' ? imageMatchResult : undefined, // Only include match for scan
+                // Include image/match result only if source was scan
+                scannedImageUri: source === 'scan' ? scannedImageUri : undefined,
+                imageMatch: source === 'scan' ? imageMatchResult : undefined,
                 source
             };
             toast({
@@ -210,16 +222,18 @@ export default function AdminScanPage() {
                 variant: 'destructive',
             });
 
-            let errorStudentData: Partial<Student> = { id: studentId.toUpperCase() || "Unknown", name: "Unknown" };
-            if (student) {
+            // Prepare data for error result display
+            let errorStudentData: Partial<Student> = { id: studentId.toUpperCase() || "Unknown ID", name: "Unknown Name" };
+            if (student) { // If student was found before error (e.g., rate limit)
                 errorStudentData = student;
-            } else if (studentId) {
+            } else if (studentId) { // If student ID was provided but not found
                 errorStudentData = { id: studentId.toUpperCase(), name: "Not Registered" };
             }
 
             resultState = {
                 student: errorStudentData,
                 log: { type: 'Error', timestamp: now, message: errorMessage },
+                // Include image/match result only if source was scan, even on error
                 scannedImageUri: source === 'scan' ? scannedImageUri : undefined,
                 imageMatch: source === 'scan' ? imageMatchResult : undefined,
                 source
@@ -228,47 +242,58 @@ export default function AdminScanPage() {
 
         } finally {
             console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
-            setLastScanResult(resultState); // Set the final result (success or error)
-            setIsProcessing(false);
-            setIsExtracting(false); // Ensure extraction state is reset
+            setLastScanResult(resultState); // Set the final result state (success or error) for display
+            setIsProcessing(false); // Turn off generic processing state
+            setIsExtracting(false); // Ensure extraction state is also reset
             if (source === 'manual') {
-                setManualStudentId(''); // Clear manual input on finish
+                setManualStudentId(''); // Clear manual input field after processing attempt
             }
-            // Keep scanner active only if using auto-capture loop, otherwise deactivate:
-            // setIsScannerActive(false); // Deactivate after processing manual capture.
+             // Deactivate scanner ONLY if processing was successful OR if it was a manual entry
+            if (processSuccessful || source === 'manual') {
+                 setIsScannerActive(false);
+            } else {
+                 // Keep scanner active after a failed SCAN attempt to allow retry?
+                 // Or maybe stop it? Let's stop it for now to match manual stop behavior.
+                 setIsScannerActive(false);
+                 // If scan failed, keep capturedImageUri for display with error?
+                 // setCapturedImageUri(null); // Clear image on scan failure? Or keep it? Let's keep it.
+            }
         }
   }, [toast]);
 
 
-  // Handles image captured from scanner
+  // Handles image captured from scanner - INITIATES THE SCAN PROCESSING
   const processCapturedImage = useCallback(async (imageDataUri: string) => {
     const logPrefix = "[processCapturedImage]";
-    if (isProcessing) {
+    if (isProcessing) { // Check generic processing state
       console.log(`${logPrefix} Already processing, skipping.`);
       return;
     }
 
     console.log(`${logPrefix} Initiated with image data (length: ${imageDataUri.length})`);
-    setIsProcessing(true); // Use generic processing state
+    setIsProcessing(true); // Set generic processing state
     setIsExtracting(true); // Start extraction indicator
-    setScanSessionError(null);
-    setLastScanResult(null); // Clear previous result
+    setScanSessionError(null); // Clear previous errors
+    setLastScanResult(null); // Clear previous display result
+    // Set captured image for display *during* processing
+    setCapturedImageUri(imageDataUri);
 
     try {
       console.log(`${logPrefix} Calling extractBarcodeData...`);
       const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
       console.log(`${logPrefix} Extraction result:`, extractionResult);
-      setIsExtracting(false); // End extraction indicator
+      setIsExtracting(false); // End extraction indicator (still processing overall)
 
       if (!extractionResult || !extractionResult.idNumber || extractionResult.idNumber.trim() === "") {
         throw new Error("Could not extract a valid ID number from the barcode image.");
       }
 
       const extractedId = extractionResult.idNumber.trim().toLowerCase();
-      await sharedProcessLogic(extractedId, 'scan', imageDataUri); // Use shared logic
+      // Call shared logic AFTER successful extraction
+      await sharedProcessLogic(extractedId, 'scan', imageDataUri);
 
     } catch (error: any) {
-      // Handle extraction-specific errors or re-throw for sharedProcessLogic to handle
+      // Handle extraction-specific errors
       console.error(`${logPrefix} Error during extraction:`, error);
       const errorMessage = error.message || 'An unknown error occurred during barcode extraction.';
       toast({
@@ -277,26 +302,31 @@ export default function AdminScanPage() {
         variant: 'destructive',
       });
 
-      // Set error state for display
+      // Set error state for display using lastScanResult
       setLastScanResult({
           student: { id: "Unknown", name: "Extraction Failed" },
           log: { type: 'Error', timestamp: new Date(), message: errorMessage },
-          scannedImageUri: imageDataUri,
+          scannedImageUri: imageDataUri, // Keep image for context
           source: 'scan'
       });
-      setIsProcessing(false);
-      setIsExtracting(false);
+      setIsProcessing(false); // Turn off generic processing state
+      setIsExtracting(false); // Ensure extraction state is off
+      setIsScannerActive(false); // Stop scanner on extraction error
     }
+    // No finally here, sharedProcessLogic handles final state updates
   }, [toast, isProcessing, sharedProcessLogic]); // Add dependencies
 
 
-  // Scanner Success Handler (Called by BarcodeScanner on successful capture)
-  const handleScanSuccess = useCallback((imageDataUri: string) => {
-    console.log("[handleScanSuccess] Scan Success - received image data.");
-    setCapturedImageUri(imageDataUri); // Store the captured image.
-    setIsScannerActive(false); // Deactivate scanner view after capture
-    processCapturedImage(imageDataUri); // Process the captured image.
-  }, [processCapturedImage]);
+  // Scanner Success Handler (Called by BarcodeScanner on successful capture - NOT USED DIRECTLY FOR PROCESSING ANYMORE)
+  // Kept for potential future use if auto-capture is re-enabled
+   const handleScanSuccess = useCallback((imageDataUri: string) => {
+       // This is now less relevant as we rely on manual stop
+       console.log("[handleScanSuccess] - DEPRECATED PATH? Manual stop should handle capture.");
+       // If this path *is* needed, it should likely call processCapturedImage
+       // setCapturedImageUri(imageDataUri);
+       // setIsScannerActive(false);
+       // processCapturedImage(imageDataUri);
+   }, []); // Empty dependencies for now
 
   // Scanner Error Handler
   const handleScannerError = useCallback((error: Error) => {
@@ -314,7 +344,7 @@ export default function AdminScanPage() {
     setIsExtracting(false); // Reset extraction state
   }, [toast]);
 
-  // Handler for manual stop button in BarcodeScanner
+  // Handler for manual stop button in BarcodeScanner - THIS IS THE MAIN PATH FOR SCANNING NOW
    const handleManualStop = useCallback((lastFrameUri: string | null) => {
         const logPrefix = "[handleManualStop]";
         console.log(`${logPrefix} User stopped scanning.`);
@@ -322,8 +352,8 @@ export default function AdminScanPage() {
 
         if (lastFrameUri) {
             console.log(`${logPrefix} Processing last captured frame.`);
-            setCapturedImageUri(lastFrameUri); // Show the last frame
-            processCapturedImage(lastFrameUri); // Process it
+            // Don't set capturedImageUri here directly, let processCapturedImage handle it
+            processCapturedImage(lastFrameUri); // Process the captured frame
         } else {
             console.log(`${logPrefix} No frame captured before stopping.`);
             setCapturedImageUri(null); // Ensure no image is shown
@@ -335,8 +365,9 @@ export default function AdminScanPage() {
                  variant: "default"
              });
              setIsProcessing(false); // Ensure processing state is reset if stopped early
+             setIsExtracting(false);
         }
-    }, [processCapturedImage, toast]);
+    }, [processCapturedImage, toast]); // Depend on processCapturedImage
 
   // Manual Capture Start
   const handleManualStartClick = useCallback(() => {
@@ -362,8 +393,16 @@ export default function AdminScanPage() {
           console.log("[handleManualSubmit] Already processing, skipping.");
           return;
       }
+      // Call shared logic for manual entry
       sharedProcessLogic(trimmedId, 'manual');
   }, [manualStudentId, isProcessing, sharedProcessLogic, toast]);
+
+   // Function to clear errors and results
+   const clearStatus = () => {
+       setScanSessionError(null);
+       setLastScanResult(null);
+       setCapturedImageUri(null); // Also clear the preview image
+   }
 
 
   return (
@@ -385,11 +424,12 @@ export default function AdminScanPage() {
                  placeholder="Enter Student ID"
                  value={manualStudentId}
                  onChange={(e) => setManualStudentId(e.target.value)}
-                 disabled={isProcessing || isScannerActive} // Disable if scanning or processing
+                 disabled={isProcessing || isScannerActive} // Disable if processing or scanner is active
                  className="text-base" // Ensure text is readable
                />
              </div>
              <Button type="submit" disabled={isProcessing || isScannerActive || !manualStudentId.trim()} className="transition-subtle">
+               {/* Show loader specifically for manual processing */}
                {isProcessing && lastScanResult?.source === 'manual' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                <span className="ml-2">Submit</span>
              </Button>
@@ -402,10 +442,10 @@ export default function AdminScanPage() {
             // Display the BarcodeScanner component when active
              <div className="w-full">
                <BarcodeScanner
-                 onScanSuccess={handleScanSuccess}
+                 // onScanSuccess={handleScanSuccess} // Not used for processing trigger anymore
                  onScanError={handleScannerError}
-                 onManualStop={handleManualStop} // Pass handler for stop button
-                 scanPrompt="Position barcode inside frame..."
+                 onManualStop={handleManualStop} // Pass handler for stop button (this triggers processing)
+                 scanPrompt="Position ID card inside frame..."
                  disabled={isProcessing || isExtracting} // Disable controls while processing/extracting
                  setCapturedImageUri={setCapturedImageUri} // Pass the state setter function
                />
@@ -416,27 +456,25 @@ export default function AdminScanPage() {
                 <Button onClick={handleManualStartClick} className="transition-subtle" disabled={isProcessing}>
                    <Camera className="mr-2 h-4 w-4" /> Start Scan
                 </Button>
+                {/* Display previously captured image if not scanning/processing */}
+                 {capturedImageUri && !isProcessing && !isScannerActive && (
+                     <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
+                         <p className="text-sm font-medium text-center mb-2">Last Scanned Image:</p>
+                         <Image
+                             src={capturedImageUri}
+                             alt="Last Scanned ID"
+                             width={150}
+                             height={225} // Vertical aspect ratio
+                             className="rounded-md mx-auto object-contain"
+                         />
+                     </div>
+                 )}
              </div>
           )}
 
 
-           {/* Show Preview of Captured Image */}
-           {capturedImageUri && !isScannerActive && !isProcessing && lastScanResult?.source === 'scan' && (
-               <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
-                   <p className="text-sm font-medium text-center mb-2">Ready to Process:</p>
-                   <Image
-                       src={capturedImageUri}
-                       alt="Captured ID"
-                       width={150}
-                       height={225} // Vertical aspect ratio
-                       className="rounded-md mx-auto object-contain"
-                   />
-               </div>
-           )}
-
-
-           {/* Show Loading Indicator */}
-           {(isProcessing || isExtracting) && (
+           {/* Show Loading Indicator during scan processing (extraction + shared logic) */}
+           {(isProcessing && !lastScanResult) && ( // Show loader only while processing *before* result is set
              <div className="flex items-center justify-center gap-2 text-muted-foreground mt-4">
                <Loader2 className="h-5 w-5 animate-spin" />
                <span>{isExtracting ? 'Extracting ID...' : 'Processing...'}</span>
@@ -445,20 +483,26 @@ export default function AdminScanPage() {
 
 
           {/* Last Scan/Manual Result Display (After successful or unsuccessful processing) */}
-          {lastScanResult && !isProcessing && !isExtracting && ( // Only show when *not* processing/extracting
+          {lastScanResult && !isProcessing && ( // Show result card when processing is finished
             <Card className={`w-full max-w-md mt-4 border-2 ${
               lastScanResult.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
               lastScanResult.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
               'border-red-500 bg-red-500/10'
             } ${lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? '!border-yellow-500 !bg-yellow-500/10' : ''}`}>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  {lastScanResult.log.type === 'Error' ? <><AlertCircle className="text-destructive" /> Processing Error</> :
-                  lastScanResult.log.type === 'Entry' ? <><UserCheck className="text-green-600" /> Entry Recorded</> :
-                  <><LogOut className="text-red-600" /> Exit Recorded</>}
-                </CardTitle>
+                 <div className="flex justify-between items-start">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      {lastScanResult.log.type === 'Error' ? <><AlertCircle className="text-destructive" /> Processing Error</> :
+                      lastScanResult.log.type === 'Entry' ? <><LogIn className="text-green-600" /> Entry Recorded</> : // Changed icon
+                      <><LogOut className="text-red-600" /> Exit Recorded</>}
+                    </CardTitle>
+                    {/* Add a close button for the result card */}
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:bg-muted/50" onClick={clearStatus}>
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Clear Status</span>
+                    </Button>
+                </div>
                 <CardDescription>
-                 {/* Display the specific processing error if it was an error log */}
                  {lastScanResult.log.type === 'Error' && lastScanResult.log.message ? lastScanResult.log.message :
                     lastScanResult.log.timestamp ? `Recorded Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : "Details unavailable"}
                 </CardDescription>
@@ -479,6 +523,7 @@ export default function AdminScanPage() {
                         : 'border-muted'
                       }`}
                     />
+                    {/* Image Match Status */}
                     {lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' && (
                       <span className="text-xs text-yellow-600 font-semibold mt-1 animate-pulse">Image Mismatch! Verify ID.</span>
                     )}
@@ -486,7 +531,7 @@ export default function AdminScanPage() {
                       <span className="text-xs text-green-600 font-semibold mt-1">Image Match Confirmed</span>
                     )}
                     {lastScanResult.imageMatch === undefined && lastScanResult.log.type !== 'Error' && (
-                      <span className="text-xs text-muted-foreground mt-1">(Comparison N/A or Inconclusive)</span>
+                      <span className="text-xs text-muted-foreground mt-1">(No registered image or comparison inconclusive)</span>
                     )}
                   </div>
                 )}
@@ -495,6 +540,7 @@ export default function AdminScanPage() {
                 <div>
                   <p><strong>Student:</strong> {lastScanResult.student?.name || 'N/A'}</p>
                   <p><strong>ID:</strong> {lastScanResult.student?.id?.toUpperCase() || 'N/A'}</p>
+                  {/* Show branch only if processing was successful (not an Error log) */}
                   {lastScanResult.log.type !== 'Error' && lastScanResult.student?.branch && (
                     <p><strong>Branch:</strong> {lastScanResult.student.branch}</p>
                   )}
@@ -503,16 +549,26 @@ export default function AdminScanPage() {
             </Card>
           )}
 
-          {/* Display General Scanner Session Errors */}
-          {scanSessionError && !isProcessing && !isExtracting && ( // Only show if not currently processing
+          {/* Display General Scanner Session Errors (when not processing and no result card is shown) */}
+          {scanSessionError && !isProcessing && !lastScanResult && (
             <Alert variant="destructive" className="w-full max-w-md mt-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Scanner Session Error</AlertTitle>
-              <AlertDescription>{scanSessionError}</AlertDescription>
-               {/* Optionally add a retry button */}
+               <div className="flex justify-between items-start">
+                   <div>
+                      <AlertCircle className="h-4 w-4 inline-block mr-2 -translate-y-0.5" /> {/* Adjusted icon position */}
+                      <AlertTitle className="inline-block">Scanner Session Error</AlertTitle>
+                      <AlertDescription>{scanSessionError}</AlertDescription>
+                  </div>
+                   {/* Add a close button for the error alert */}
+                   <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:bg-destructive/10" onClick={clearStatus}>
+                       <X className="h-4 w-4" />
+                       <span className="sr-only">Clear Error</span>
+                   </Button>
+               </div>
+
+               {/* Optionally add a retry button for scanner errors */}
                {!isScannerActive && ( // Show retry only if scanner isn't already active
                    <Button onClick={handleManualStartClick} variant="secondary" size="sm" className="mt-2 text-xs">
-                       Try Again
+                       <RefreshCw className="mr-1 h-3 w-3"/> Try Scan Again
                    </Button>
                 )}
             </Alert>
@@ -522,3 +578,4 @@ export default function AdminScanPage() {
     </div>
   );
 }
+

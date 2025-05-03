@@ -44,8 +44,9 @@ const mapBranch = (branchStr?: string): Branch | undefined => {
    const lowerBranchStr = branchStr.trim().toLowerCase();
    // Find a known branch case-insensitively
    const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
-   // Return the canonical known branch name, or the trimmed input string if not found
-   return knownBranch || branchStr.trim();
+   // Return the canonical known branch name, or the trimmed input string if not found (or undefined if empty after trim)
+   const trimmedInput = branchStr.trim();
+   return knownBranch || (trimmedInput || undefined);
 }
 
 
@@ -60,6 +61,7 @@ export default function AdminAddStudentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('scan'); // 'scan', 'upload', 'manual'
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const studentFormRef = useRef<{ submit: () => void }>(null); // Ref for form submission
 
    // Derive default values for the form based on extracted data
    // Recalculated only when extractedData changes
@@ -68,9 +70,9 @@ export default function AdminAddStudentPage() {
         return {
             id: extractedData.idNumber || '',
             name: extractedData.studentName || '',
-            branch: mapBranch(extractedData.branch) || '',
+            branch: mapBranch(extractedData.branch), // Map to known branch or keep as string
             rollNo: extractedData.rollNo || '',
-            yearOfStudy: mapYearOfStudy(extractedData.yearOfStudy) // Keep as enum type or undefined
+            yearOfStudy: mapYearOfStudy(extractedData.yearOfStudy) // Map to enum type or undefined
         };
     }, [extractedData]);
 
@@ -90,7 +92,7 @@ export default function AdminAddStudentPage() {
         console.log("Manual stop without valid frame capture.");
         setCapturedImageUri(null); // No image to show
         setExtractedData({}); // Trigger form display for purely manual entry
-        setExtractionError("No frame captured. Please enter details manually or try scanning again.");
+        setExtractionError("No image captured. Please enter details manually or try scanning/uploading again.");
         setActiveTab('manual'); // Switch to manual tab
         toast({
             title: "Manual Entry Required",
@@ -100,15 +102,15 @@ export default function AdminAddStudentPage() {
         return; // Stop processing
     }
 
-    console.log("Processing image:", imageDataUri.substring(0, 50));
+    console.log("Processing image:", imageDataUri.substring(0, 50) + "...");
     setCapturedImageUri(imageDataUri); // Store the image URI for display and submission
-    setExtractedData(null);
+    setExtractedData(null); // Clear previous extraction
     setExtractionError(null);
     setIsExtracting(true);
-    setActiveTab('manual'); // Switch to manual tab to show form after processing
+    setActiveTab('manual'); // Switch to manual tab to show form/results after processing
 
     try {
-        console.log("Calling adminExtractBarcodeData with image URI (first 50 chars):", imageDataUri.substring(0, 50));
+        console.log("Calling adminExtractBarcodeData with image URI (first 50 chars):", imageDataUri.substring(0, 50) + "...");
         const result = await adminExtractBarcodeData({ photoDataUri: imageDataUri });
         console.log("adminExtractBarcodeData raw result:", result);
 
@@ -116,7 +118,7 @@ export default function AdminAddStudentPage() {
              const mappedData: ExtractedIdData = {
                  idNumber: result.studentId || '', // Default to empty string if undefined/null
                  studentName: result.studentName,
-                 branch: result.branch, // Keep original string from AI for potential mapping later
+                 branch: result.branch, // Keep original string from AI for mapping later
                  rollNo: result.rollNo,
                  yearOfStudy: result.yearOfStudy, // Keep original string from AI for mapping later
              };
@@ -167,11 +169,12 @@ export default function AdminAddStudentPage() {
 
 
   const handleScanSuccess = (imageDataUri: string) => {
-    console.log("Scan Success - received image data.");
-    processImage(imageDataUri);
+     // This might not be called if using manual stop as the primary trigger
+    console.log("Scan Success (DEPRECATED PATH?) - received image data.");
+    // processImage(imageDataUri); // Should be triggered by onManualStop now
   };
 
-   // Handler for manual stop in scanner
+   // Handler for manual stop in scanner - THIS IS THE PRIMARY TRIGGER
    const handleManualStop = (imageDataUri: string | null) => {
     console.log("Manual Stop - received image data (or null):", imageDataUri ? imageDataUri.substring(0, 50) + "..." : null);
     processImage(imageDataUri); // Process the captured frame (or null)
@@ -212,7 +215,7 @@ export default function AdminAddStudentPage() {
     try {
       // Check if student ID already exists
        const students: Student[] = JSON.parse(localStorage.getItem('students') || '[]');
-       const existingStudent = students.find(s => s.id.toLowerCase() === formData.id.toLowerCase());
+       const existingStudent = students.find(s => s.id.trim().toLowerCase() === formData.id.trim().toLowerCase());
        if (existingStudent) {
            toast({
                title: 'Student Already Exists',
@@ -224,13 +227,14 @@ export default function AdminAddStudentPage() {
        }
 
 
-       console.log('Admin submitting registration data:', { ...formData, idCardImageUri: capturedImageUri?.substring(0, 50) + "..." });
+       console.log('Admin submitting registration data:', { ...formData, idCardImageUri: capturedImageUri ? capturedImageUri.substring(0, 50) + "..." : 'None' });
 
       // Simulate network delay (REMOVE IN PRODUCTION)
       // await new Promise(resolve => setTimeout(resolve, 1000));
 
       const newStudent: Student = {
         ...formData,
+        id: formData.id.trim(), // Ensure ID is trimmed
         // Save the captured/uploaded image URI from the state
         idCardImageUri: capturedImageUri || undefined,
         createdAt: new Date(),
@@ -238,11 +242,11 @@ export default function AdminAddStudentPage() {
 
       // Persist student data (using localStorage for demo)
        students.push(newStudent);
-       localStorage.setItem('students', JSON.stringify(students));
+       saveStudents(students); // Use helper function
 
       toast({
         title: 'Student Added Successfully',
-        description: `${formData.name} (ID: ${formData.id}) has been added.`,
+        description: `${formData.name} (ID: ${newStudent.id.toUpperCase()}) has been added.`,
       });
 
        // Reset state after successful submission
@@ -250,6 +254,9 @@ export default function AdminAddStudentPage() {
        setExtractedData(null);
        setExtractionError(null);
        setActiveTab('scan'); // Go back to the scan tab or dashboard
+       // Optionally reset the form itself if needed (though tab switch might handle it)
+       // form.reset(); // Assuming 'form' is accessible via ref or context if needed here
+
        // router.push('/admin/dashboard'); // Optional: Redirect
 
     } catch (error: any) {
@@ -263,6 +270,16 @@ export default function AdminAddStudentPage() {
       setIsSubmitting(false);
     }
   };
+
+   // Helper function to save students to localStorage
+   const saveStudents = (students: Student[]) => {
+       try {
+           localStorage.setItem('students', JSON.stringify(students));
+       } catch (error) {
+           console.error("Error saving students to localStorage:", error);
+           toast({ title: "Storage Error", description: "Could not save student list.", variant: "destructive" });
+       }
+   };
 
 
   return (
@@ -284,13 +301,13 @@ export default function AdminAddStudentPage() {
                 {/* Scan Tab Content */}
                 <TabsContent value="scan" className="flex flex-col items-center pt-6">
                     <BarcodeScanner
-                        onScanSuccess={handleScanSuccess}
+                        // onScanSuccess={handleScanSuccess} // Not primary trigger anymore
                         onScanError={(err) => {
                             console.error("Scanner Error:", err);
                             setExtractionError(`Scanner error: ${err.message}. Try uploading or manual entry.`);
                             toast({ title:"Scanner Issue", description: "Could not start or use scanner.", variant: "destructive"})
                         }}
-                        onManualStop={handleManualStop} // Pass the manual stop handler
+                        onManualStop={handleManualStop} // Pass the manual stop handler (triggers processing)
                         scanPrompt="Position ID card inside the frame"
                         disabled={isExtracting || isSubmitting}
                         setCapturedImageUri={setCapturedImageUri} // Pass the setter function
@@ -301,6 +318,19 @@ export default function AdminAddStudentPage() {
                             <span>Processing image...</span>
                         </div>
                     )}
+                     {/* Display captured image preview after scan stops (before processing finishes) */}
+                     {capturedImageUri && !isExtracting && activeTab === 'scan' && (
+                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
+                             <p className="text-sm font-medium text-center mb-2">Captured Image:</p>
+                             <Image
+                                 src={capturedImageUri}
+                                 alt="Captured ID Card"
+                                 width={150}
+                                 height={225} // Maintain vertical aspect ratio
+                                 className="rounded-md mx-auto object-contain"
+                             />
+                         </div>
+                     )}
                 </TabsContent>
 
                 {/* Upload Tab Content */}
@@ -324,6 +354,19 @@ export default function AdminAddStudentPage() {
                             <span>Processing image...</span>
                         </div>
                     )}
+                      {/* Display uploaded image preview after upload (before processing finishes) */}
+                      {capturedImageUri && !isExtracting && activeTab === 'upload' && (
+                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
+                             <p className="text-sm font-medium text-center mb-2">Uploaded Image:</p>
+                             <Image
+                                 src={capturedImageUri}
+                                 alt="Uploaded ID Card"
+                                 width={150}
+                                 height={225} // Maintain vertical aspect ratio
+                                 className="rounded-md mx-auto object-contain"
+                             />
+                         </div>
+                     )}
                 </TabsContent>
 
                 {/* Manual Entry Tab Content (also shows results from scan/upload) */}
@@ -337,12 +380,21 @@ export default function AdminAddStudentPage() {
 
                     {extractionError && !isExtracting && (
                         <Alert variant="destructive" className="w-full mb-4">
-                            <Info className="h-4 w-4" />
-                            <AlertTitle>Extraction Issue</AlertTitle>
-                            <AlertDescription>{extractionError}</AlertDescription>
+                           <div className="flex justify-between items-start">
+                              <div>
+                                 <Info className="h-4 w-4 inline-block mr-2 -translate-y-0.5" />
+                                 <AlertTitle className="inline-block">Extraction Issue</AlertTitle>
+                                 <AlertDescription>{extractionError}</AlertDescription>
+                              </div>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setExtractionError(null)}>
+                                 <X className="h-4 w-4"/>
+                                 <span className="sr-only">Dismiss Error</span>
+                              </Button>
+                           </div>
                         </Alert>
                     )}
 
+                    {/* Display Image (from Scan/Upload) on Manual Tab */}
                     {capturedImageUri && !isExtracting && (
                         <div className="mb-4 p-2 border rounded-md bg-muted w-full max-w-sm mx-auto">
                            <p className="text-sm font-medium text-center mb-2">Processed Image:</p>
@@ -359,16 +411,18 @@ export default function AdminAddStudentPage() {
 
                     {/* Always render form in manual tab if not extracting. Handles manual entry and verification after scan/upload */}
                     {!isExtracting && (
-                        <StudentForm
-                            // Use key to force re-render with new defaults when extractedData changes significantly (e.g., new scan/upload or manual stop)
-                             key={capturedImageUri || activeTab} // Key changes when image changes or tab switched to manual
-                            onSubmit={handleFormSubmit}
-                            defaultValues={formDefaultValues}
-                            isLoading={isSubmitting}
-                            submitButtonText={isSubmitting ? 'Adding...' : 'Add Student'}
-                            formTitle="Student Details"
-                            formDescription={extractedData ? "Verify extracted information and complete any missing fields." : "Enter student details manually."}
-                        />
+                       <div className="w-full max-w-lg mx-auto"> {/* Ensure form takes appropriate width */}
+                           <StudentForm
+                                // Use key to force re-render with new defaults when extractedData changes significantly
+                                key={JSON.stringify(extractedData)} // Key changes when extraction result changes
+                                onSubmit={handleFormSubmit}
+                                defaultValues={formDefaultValues}
+                                isLoading={isSubmitting}
+                                submitButtonText={isSubmitting ? 'Adding...' : 'Add Student'}
+                                formTitle="Student Details"
+                                formDescription={extractedData ? "Verify extracted information and complete any missing fields." : "Enter student details manually."}
+                           />
+                       </div>
                     )}
                 </TabsContent>
             </Tabs>

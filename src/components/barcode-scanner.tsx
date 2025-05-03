@@ -4,13 +4,14 @@
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, X } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Loader2, ScanLine, StopCircle, SwitchCamera } from 'lucide-react'; // Added SwitchCamera
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Image from 'next/image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Added Select
 
 interface BarcodeScannerProps {
-  onScanSuccess: (imageDataUri: string) => void; // Still used if auto-capture is re-enabled
+  onScanSuccess?: (imageDataUri: string) => void; // Optional now
   onScanError?: (error: Error) => void;
   scanPrompt?: string;
   disabled?: boolean;
@@ -19,7 +20,7 @@ interface BarcodeScannerProps {
 }
 
 const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
-  onScanSuccess, // Keep for potential future auto-capture
+  onScanSuccess,
   onScanError,
   scanPrompt = 'Position ID card inside the frame',
   disabled = false,
@@ -37,6 +38,11 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const { toast } = useToast();
 
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false); // State for camera switch loading
+
+
    // --- Event Handlers ---
   const handleVideoError = useCallback((event: Event) => {
       const logPrefix = "[VideoError]";
@@ -52,18 +58,21 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED: message = "The video source format is not supported."; break;
               default: message = `An unknown video error occurred (Code: ${videoError.code}).`;
           }
-          if (message.includes('MEDIA_ERR_SRC_NOT_SUPPORTED') || message.includes('MEDIA_ERR_DECODE') || (event as any).message?.includes('Could not start video source')) {
-               message = "Could not start video source. Ensure the camera is working and permissions are granted.";
-          }
           console.error(`${logPrefix} Details: Code ${videoError.code}, Message: ${videoError.message}`);
-      } else if ((event as any).message?.includes('Could not start video source')) {
-           message = "Could not start video source. Ensure the camera is working and permissions are granted.";
+      }
+      // Check for specific message indicating device issue
+      if ((event as any)?.message?.includes('Could not start video source') || message.includes('MEDIA_ERR_SRC_NOT_SUPPORTED') || message.includes('MEDIA_ERR_DECODE')) {
+         message = "Could not start video source. Check if the camera is working, connected, and permissions are granted. Try selecting a different camera if available.";
       }
 
+
       setError(message);
-      toast({ title: "Video Playback Error", description: message, variant: "destructive", duration: 8000 });
+      // Don't toast immediately on every video error, might be transient. Let startCamera handle more specific errors.
+      // toast({ title: "Video Playback Error", description: message, variant: "destructive", duration: 8000 });
       if (onScanError) onScanError(new Error(message));
-  }, [toast, onScanError]);
+      setIsActive(false); // Ensure scanner is marked inactive on error
+      setIsStarting(false);
+  }, [onScanError]);
 
   const handleLoadedMetadata = useCallback(() => {
       const video = videoRef.current;
@@ -74,8 +83,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const handleVideoPlay = useCallback(() => {
       console.log("[play] Video playback started successfully.");
       setIsActive(true);
-      setError(null);
+      setError(null); // Clear previous errors on successful play
       setIsStarting(false);
+      setIsSwitchingCamera(false); // Finish switching camera indicator
   }, []);
 
 
@@ -141,22 +151,24 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     setIsActive(false);
     setIsStarting(false);
+    setIsSwitchingCamera(false); // Ensure switching state is reset
     setInternalCapturedImageUri(null);
 
     // Always attempt to clear the image URI using the passed setter
-    try {
-        // This call relies on setCapturedImageUri being a valid function passed as a prop
-        setCapturedImageUri(null);
-        console.log(`${logPrefix} Called setCapturedImageUri(null).`);
-    } catch (e) {
-        // This should ideally not happen if the prop is correctly passed and typed
-        console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
-        // Optionally set an error state or notify the user if this is critical
-        // setError("Internal component error: Failed to clear image state on cleanup.");
+    if (typeof setCapturedImageUri === 'function') {
+        try {
+            setCapturedImageUri(null);
+            console.log(`${logPrefix} Called setCapturedImageUri(null).`);
+        } catch (e) {
+            console.error(`${logPrefix} Error calling setCapturedImageUri during cleanup:`, e);
+        }
+    } else {
+         console.warn(`${logPrefix} setCapturedImageUri prop is not a function during cleanup.`);
     }
 
+
     console.log(`${logPrefix} Cleanup finished.`);
-  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
+  }, [handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]); // Add setCapturedImageUri dependency
 
 
   // --- Frame Capture ---
@@ -184,7 +196,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageDataUri = canvas.toDataURL('image/png');
+      const imageDataUri = canvas.toDataURL('image/png'); // Use PNG for better quality potentially
       console.log(`${logPrefix} Success. Frame captured. Length: ${imageDataUri.length}`);
       return imageDataUri;
     } catch (e: any) {
@@ -204,16 +216,21 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     const logPrefix = "[handleStopClick]";
     console.log(`${logPrefix} Manual stop requested.`);
 
-    const lastFrameUri = captureFrame();
+    const lastFrameUri = captureFrame(); // Try to capture one last frame
     setInternalCapturedImageUri(lastFrameUri);
 
-    try {
-       setCapturedImageUri(lastFrameUri);
-       console.log(`${logPrefix} Updated parent captured image URI.`);
-    } catch (e) {
-      console.error(`${logPrefix} Error calling setCapturedImageUri during stop:`, e);
-      setError("Internal component error: Failed to update image state on stop.");
+    if (typeof setCapturedImageUri === 'function') {
+        try {
+           setCapturedImageUri(lastFrameUri);
+           console.log(`${logPrefix} Updated parent captured image URI.`);
+        } catch (e) {
+          console.error(`${logPrefix} Error calling setCapturedImageUri during stop:`, e);
+          setError("Internal component error: Failed to update image state on stop.");
+        }
+    } else {
+         console.warn(`${logPrefix} setCapturedImageUri prop is not a function during stop.`);
     }
+
 
     cleanupCamera("manual stop");
 
@@ -225,22 +242,65 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     }
   }, [cleanupCamera, onManualStop, captureFrame, setCapturedImageUri]);
 
+  // --- Enumerate Devices ---
+  const enumerateDevices = useCallback(async () => {
+    const logPrefix = "[enumerateDevices]";
+    console.log(`${logPrefix} Enumerating devices...`);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        console.warn(`${logPrefix} enumerateDevices is not supported.`);
+        return;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputDevices = devices.filter(device => device.kind === 'videoinput');
+      console.log(`${logPrefix} Found ${videoInputDevices.length} video devices:`, videoInputDevices);
+      setVideoDevices(videoInputDevices);
+
+      // Load preferred device from localStorage
+      const storedDeviceId = localStorage.getItem('preferredCameraId');
+      const currentDeviceId = selectedDeviceId || storedDeviceId;
+
+      // Set initial device or keep current if valid
+      if (videoInputDevices.length > 0) {
+         const deviceExists = videoInputDevices.some(d => d.deviceId === currentDeviceId);
+         if (deviceExists && currentDeviceId) {
+             console.log(`${logPrefix} Using existing/stored device ID: ${currentDeviceId}`);
+             setSelectedDeviceId(currentDeviceId);
+         } else {
+             // Prefer environment facing if available and no preference/invalid preference
+             const environmentCamera = videoInputDevices.find(d => d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('environment'));
+             const defaultDevice = environmentCamera || videoInputDevices[0];
+             console.log(`${logPrefix} Setting default device ID: ${defaultDevice.deviceId}`);
+             setSelectedDeviceId(defaultDevice.deviceId);
+             localStorage.setItem('preferredCameraId', defaultDevice.deviceId); // Save default
+         }
+      } else {
+          console.warn(`${logPrefix} No video input devices found.`);
+          setSelectedDeviceId(null); // No devices available
+      }
+
+    } catch (err) {
+      console.error(`${logPrefix} Error enumerating devices:`, err);
+      setError("Could not list available cameras.");
+    }
+  }, [selectedDeviceId]); // Re-run if selectedDeviceId changes externally? Maybe not needed.
+
 
   // --- Start Camera ---
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (deviceId?: string | null) => {
     const logPrefix = "[startCamera]";
-    console.log(`${logPrefix} Attempting to start...`);
+    const targetDeviceId = deviceId || selectedDeviceId; // Use provided or state deviceId
+    console.log(`${logPrefix} Attempting to start... Target Device ID: ${targetDeviceId}`);
+
     if (isStarting || isActive) {
       console.warn(`${logPrefix} Aborted - already starting or active.`);
       return;
     }
-
-    // Ensure setCapturedImageUri is a function before proceeding
-    if (typeof setCapturedImageUri !== 'function') {
+    if (!setCapturedImageUri || typeof setCapturedImageUri !== 'function') {
       console.error(`${logPrefix} Aborted - setCapturedImageUri prop is not a function.`);
       setError("Internal component error: State update function missing.");
-      setIsStarting(false); // Reset starting state
-      return; // Critical error, cannot proceed
+      setIsStarting(false);
+      return;
     }
 
     setError(null);
@@ -250,7 +310,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     setInternalCapturedImageUri(null);
 
     try {
-      setCapturedImageUri(null); // Clear parent's state
+      setCapturedImageUri(null);
     } catch (e) {
       console.error(`${logPrefix} Error calling setCapturedImageUri during start:`, e);
       setError("Internal component error: Failed to clear image state.");
@@ -260,7 +320,9 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     console.log(`${logPrefix} Performing pre-start cleanup.`);
     cleanupCamera("startCamera preamble");
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Short delay to ensure cleanup completes before requesting stream again
+    await new Promise(resolve => setTimeout(resolve, 100));
+
 
     const video = videoRef.current;
     if (!video) {
@@ -285,38 +347,49 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         throw new Error('Camera access (getUserMedia) is not supported by this browser.');
       }
 
+      // Construct constraints based on selected device ID
+      const constraints: MediaStreamConstraints = {
+        audio: false,
+        video: targetDeviceId ? { deviceId: { exact: targetDeviceId } } : true // Use exact deviceId if available, otherwise default video
+      };
+      console.log(`${logPrefix} Using constraints:`, constraints);
+
       let stream: MediaStream | null = null;
       try {
-          console.log(`${logPrefix} Trying simple video constraint.`);
-          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err: any) {
-          console.warn(`${logPrefix} Simple video constraint failed (${err.name}). Trying environment facing.`);
-          if (err.name !== 'OverconstrainedError' && err.name !== 'NotFoundError') {
-               throw err;
-          }
-           try {
-              console.log(`${logPrefix} Trying environment facing constraint.`);
-              stream = await navigator.mediaDevices.getUserMedia({
-                  video: { facingMode: "environment" },
-                  audio: false
-              });
-          } catch (innerErr: any) {
-              console.error(`${logPrefix} Both simple and environment facing constraints failed.`);
-               try {
-                   console.warn(`${logPrefix} Environment constraint failed. Trying ANY video device.`);
-                   stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-               } catch (finalErr) {
-                   console.error(`${logPrefix} All camera constraints (simple, environment, any) failed.`);
-                   throw innerErr;
-               }
+          console.error(`${logPrefix} getUserMedia failed with constraints:`, constraints, err);
+          // If specific device fails, try default video as fallback?
+          if (targetDeviceId && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError' || err.name === 'NotReadableError')) {
+              console.warn(`${logPrefix} Failed to get specific device ${targetDeviceId}. Trying default video.`);
+              try {
+                  stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                  console.log(`${logPrefix} Successfully fell back to default video stream.`);
+                  // Update selectedDeviceId if fallback worked? Or notify user?
+                  // Maybe clear the errored deviceId?
+                   const actualDeviceId = stream?.getVideoTracks()[0]?.getSettings()?.deviceId;
+                   if (actualDeviceId && actualDeviceId !== targetDeviceId) {
+                       console.log(`${logPrefix} Fallback stream uses device ID: ${actualDeviceId}. Updating state.`);
+                       setSelectedDeviceId(actualDeviceId); // Update state to reflect actual device
+                       localStorage.setItem('preferredCameraId', actualDeviceId); // Save fallback choice
+                       toast({ title: "Camera Switched", description: `Switched to default camera as preferred one was unavailable.`, variant: "default"});
+                   }
+
+              } catch (fallbackErr) {
+                  console.error(`${logPrefix} Fallback to default video also failed.`);
+                  throw err; // Re-throw the original error for better context
+              }
+          } else {
+              throw err; // Re-throw other errors (like permission denied)
           }
       }
+
 
       console.log(`${logPrefix} Stream obtained:`, stream.id);
       setHasCameraPermission(true);
       streamRef.current = stream;
 
-      const currentVideo = videoRef.current;
+      const currentVideo = videoRef.current; // Re-check ref
       if (!currentVideo) {
           throw new Error("Video element reference became unavailable after stream acquisition.");
       }
@@ -328,24 +401,13 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       }
 
       currentVideo.srcObject = stream;
-      currentVideo.muted = true;
-      currentVideo.playsInline = true;
+      currentVideo.muted = true; // Ensure muted
+      currentVideo.playsInline = true; // Important for mobile
       console.log(`${logPrefix} Set video srcObject.`);
 
       console.log(`${logPrefix} Attempting video.play()...`);
-      currentVideo.play().catch(playError => {
-          console.error(`${logPrefix} video.play() promise rejected synchronously:`, playError);
-          let playErrorMessage = `Video playback failed: ${playError.name} - ${playError.message}.`;
-           if (playError.name === 'NotAllowedError') {
-               playErrorMessage += " Ensure action triggered by user interaction & check autoplay policies.";
-           } else if (playError.name === 'NotSupportedError') {
-               playErrorMessage += " Video format or source might not be supported.";
-           }
-           const wrappedError = new Error(playErrorMessage);
-           (wrappedError as any).cause = playError;
-           throw wrappedError;
-      });
-      console.log(`${logPrefix} video.play() called.`);
+      await currentVideo.play(); // Wait for play() promise
+      // Playback success is handled by the 'play' event listener now
 
     } catch (err: any) {
         console.error(`${logPrefix} Error during camera start or playback:`, err);
@@ -356,47 +418,57 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             message = 'Camera permission denied. Please allow access in browser settings and refresh.';
             permissionRelated = true;
         } else if (['NotFoundError', 'DevicesNotFoundError'].includes(err.name)) {
-            message = 'No compatible camera found. Ensure it is connected and enabled.';
-        } else if (['NotReadableError', 'TrackStartError', 'AbortError', 'OverconstrainedError'].includes(err.name)) {
+            message = 'Selected camera not found or unavailable. Try another camera or ensure it is connected.';
+        } else if (['NotReadableError', 'TrackStartError', 'AbortError'].includes(err.name)) {
              message = err.name === 'NotReadableError'
-             ? 'Camera is already in use or could not be started. Close other apps/tabs using the camera and refresh.'
-             : err.name === 'OverconstrainedError'
-             ? 'Camera does not support requested resolution/settings.'
+             ? 'Selected camera might be in use by another application or encountered a hardware issue. Try closing other apps/tabs or selecting a different camera.'
              : `Camera hardware error (${err.name}). Try refreshing or restarting device.`;
+        } else if (err.name === 'OverconstrainedError') {
+            message = 'Camera does not support requested constraints (e.g., resolution).'; // Less likely with just deviceId
         } else if (err.name === 'SecurityError') {
             message = 'Camera access denied due to security settings (requires HTTPS or localhost).';
             permissionRelated = true;
         } else if (err.name === 'TypeError' && err.message?.includes('getUserMedia')) {
              message = 'Camera access (getUserMedia) is not supported by this browser or context (e.g., HTTP).';
         }
-         else if (err.message?.includes('Could not start video source')) {
-             message = 'Could not start video source. Ensure the camera is working and permissions are granted.';
-         }
-         else if (err.message?.startsWith('Video playback failed:')) {
+         else if (err.message?.startsWith('Video playback failed:')) { // Check if play() failed explicitly
              message = err.message;
          }
+         else if (err.message?.includes('Could not start video source')) {
+              message = 'Could not start video source. Check camera connection and permissions.';
+         }
+
 
         setError(message);
         setHasCameraPermission(permissionRelated ? false : null);
         toast({ title: 'Camera Start Error', description: message, variant: 'destructive', duration: 8000 });
         if (onScanError) onScanError(err instanceof Error ? err : new Error(message));
         cleanupCamera("startCamera error handler");
+        // Do not set isStarting false here, cleanup handles it
     } finally {
-      if (error || (!isActive && !isStarting)) {
-         setIsStarting(false);
-      }
+      // Don't set isStarting = false here, let the 'play' event listener do it on success
+      // or the error handler + cleanupCamera on failure.
       console.log(`${logPrefix} Finished start attempt. State:`, { isStarting, isActive, error });
     }
-  }, [toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
+  }, [selectedDeviceId, isStarting, isActive, setCapturedImageUri, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay]); // Add selectedDeviceId
 
 
-  // Effect to cleanup on error state change
+  // Effect to enumerate devices on mount and when permission might change
   useEffect(() => {
-      if (error && hasCameraPermission !== false) {
+      enumerateDevices();
+  }, [enumerateDevices]);
+
+  // Effect to cleanup on error state change or permission denial
+  useEffect(() => {
+      if (error && !isStarting) { // Cleanup if error occurs and not currently trying to start
           console.log("[ErrorEffect] Cleaning up camera due to error state change:", error);
           cleanupCamera("error effect");
       }
-  }, [error, hasCameraPermission, cleanupCamera]);
+      if (hasCameraPermission === false) {
+         console.log("[PermissionEffect] Cleaning up camera due to permission denial.");
+         cleanupCamera("permission denied effect");
+      }
+  }, [error, hasCameraPermission, isStarting, cleanupCamera]);
 
 
   // --- Unmount Cleanup ---
@@ -414,15 +486,70 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const handleInitialStartClick = () => {
     if (!isStarting && !isActive && !disabled) {
       console.log("[InitialStartClick] Triggering startCamera().");
-      startCamera();
+      // Enumerate devices again before starting, in case they changed
+      enumerateDevices().then(() => {
+          startCamera(); // Start with the currently selected device ID
+      });
     } else {
       console.log("[InitialStartClick] Ignoring click. Conditions:", { isStarting, isActive, disabled });
     }
   };
 
+   // --- Handle Camera Switch ---
+  const handleCameraSwitch = useCallback((newDeviceId: string) => {
+    if (newDeviceId === selectedDeviceId || isSwitchingCamera || isStarting) {
+      return; // No change or already switching/starting
+    }
+    console.log(`[handleCameraSwitch] Switching to device ID: ${newDeviceId}`);
+    setIsSwitchingCamera(true); // Set loading state for switch
+    setError(null); // Clear previous errors
+    setSelectedDeviceId(newDeviceId);
+    localStorage.setItem('preferredCameraId', newDeviceId); // Save preference
+
+    // If the camera is already active, stop it and restart with the new device
+    if (isActive) {
+      cleanupCamera("camera switch");
+       // Use a timeout to allow cleanup to finish before starting again
+      setTimeout(() => {
+        startCamera(newDeviceId);
+      }, 150); // Increased delay slightly
+    } else {
+       setIsSwitchingCamera(false); // If not active, just update state, don't start automatically
+    }
+  }, [selectedDeviceId, isActive, isSwitchingCamera, isStarting, startCamera, cleanupCamera]);
+
 
   return (
     <div className={`flex flex-col items-center gap-4 w-full max-w-xs ${disabled && !isStarting ? 'opacity-50 pointer-events-none' : ''}`}>
+
+       {/* Camera Device Selector */}
+       {videoDevices.length > 1 && (
+           <div className="w-full">
+               <Select
+                   value={selectedDeviceId || ''}
+                   onValueChange={handleCameraSwitch}
+                   disabled={isStarting || isSwitchingCamera || disabled}
+               >
+                   <SelectTrigger className="w-full">
+                       <SelectValue placeholder="Select Camera" />
+                   </SelectTrigger>
+                   <SelectContent>
+                       {videoDevices.map((device) => (
+                           <SelectItem key={device.deviceId} value={device.deviceId}>
+                               {device.label || `Camera ${videoDevices.indexOf(device) + 1}`}
+                           </SelectItem>
+                       ))}
+                   </SelectContent>
+               </Select>
+                {isSwitchingCamera && (
+                    <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mt-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Switching camera...</span>
+                    </div>
+                )}
+           </div>
+        )}
+
       {/* Camera/Video Display Area */}
       <div className={`w-full aspect-[2/3] border rounded-lg overflow-hidden shadow-md bg-muted relative ${isStarting || isActive || error || hasCameraPermission === false ? 'block' : 'hidden'}`}>
         {/* Video element container */}
@@ -434,15 +561,15 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
                 muted
                 aria-label="Camera feed for ID card capture"
             />
-            {/* Loading Overlay */}
-            {isStarting && (
+            {/* Loading Overlay (Starting or Switching) */}
+            {(isStarting || isSwitchingCamera) && !error && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white z-10 pointer-events-none">
                     <Loader2 className="h-8 w-8 animate-spin mb-2" />
-                    <p className="text-sm text-muted-foreground">Starting camera...</p>
+                    <p className="text-sm text-muted-foreground">{isSwitchingCamera ? 'Switching camera...' : 'Starting camera...'}</p>
                 </div>
             )}
             {/* Scan Guidance Overlay - Adjusted for vertical ID */}
-            {isActive && (
+            {isActive && !isStarting && !isSwitchingCamera && ( // Only show when fully active
                 <div className="absolute inset-0 pointer-events-none z-5">
                      {/* More vertical rectangle */}
                     <div className="absolute inset-x-[10%] inset-y-[5%] border-2 border-accent/50 rounded pointer-events-none" aria-hidden="true"></div>
@@ -466,7 +593,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             </div>
         )}
         {/* General Error Overlay */}
-        {error && !isStarting && hasCameraPermission !== false && (
+        {error && !isStarting && !isSwitchingCamera && ( // Show error only when not starting/switching
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-20 p-4">
                 <Alert variant="destructive" className="w-full max-w-xs">
                     <AlertCircle className="h-4 w-4" />
@@ -501,18 +628,18 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       <div className="flex gap-2">
         {!isActive && !isStarting && hasCameraPermission !== false && !error ? (
           // Show "Start Camera" button if inactive and no errors (or permission denied)
-          <Button onClick={handleInitialStartClick} disabled={disabled || isStarting} className="transition-subtle">
+          <Button onClick={handleInitialStartClick} disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
             <Camera className="mr-2 h-4 w-4" /> Start Camera
           </Button>
         ) :
-        isActive ? (
+        isActive && !isStarting && !isSwitchingCamera? (
            // Show ONLY the "Stop Scanning" button if active and the handler is provided
             onManualStop && (
-               <Button onClick={handleStopClick} variant="destructive" disabled={disabled || isStarting} className="transition-subtle">
+               <Button onClick={handleStopClick} variant="destructive" disabled={disabled || isStarting || isSwitchingCamera} className="transition-subtle">
                  <StopCircle className="mr-2 h-4 w-4" /> Stop Scanning
                </Button>
              )
-        ) : null // Don't show buttons while starting, or if permission denied/error occurred (handled in overlays)
+        ) : null // Don't show buttons while starting, switching, or if permission denied/error occurred (handled in overlays)
         }
       </div>
     </div>
@@ -520,3 +647,4 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 };
 
 export default BarcodeScanner;
+
