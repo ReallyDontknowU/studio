@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCap
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"; // Import Dialog components
 import { useToast } from '@/hooks/use-toast';
-import { Search, Edit, Trash2, UserX, Camera, Upload, Image as ImageIcon, Loader2 } from 'lucide-react'; // Added Image, Camera, Upload, Loader2
+import { Search, Edit, Trash2, UserX, Camera, Upload, Image as ImageIcon, Loader2, X } from 'lucide-react'; // Added Image, Camera, Upload, Loader2, X
 import type { Student, ExtractedIdData, YearOfStudy, Branch } from '@/lib/types';
 import StudentForm, { StudentFormData } from '@/components/student-form'; // Import StudentForm
 import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants'; // Import branches for form
@@ -367,7 +367,7 @@ export default function AdminManageStudentsPage() {
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                 <DialogContent className="sm:max-w-[600px] p-0 flex flex-col max-h-[90vh]"> {/* Use flex column, limit height */}
-                    <DialogHeader className="p-6 pb-4 border-b shrink-0"> {/* Add padding and border */}
+                    <DialogHeader> {/* Add padding and border */}
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details. You can also update the ID card image.
@@ -391,12 +391,20 @@ export default function AdminManageStudentsPage() {
                                                        setEditModeExtractionError(`Scanner error: ${err.message}`);
                                                        setIsEditModeScanning(false);
                                                    }}
-                                                   // Remove onManualStop prop usage as it's removed from BarcodeScanner
+                                                   onManualStop={handleEditManualStop}
                                                    scanPrompt="Position ID card..."
                                                    disabled={isEditModeExtracting}
-                                                   autoStartScanLoop={true} // Keep auto loop for consistency
+                                                   capturedImageUri={editModeCapturedImageUri} // Pass current edit image URI
+                                                   setCapturedImageUri={setEditModeCapturedImageUri} // Pass the setter
                                                />
-                                               {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
+                                                {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
+                                                {/* Button to manually stop scanning */}
+                                                 <Button onClick={() => {
+                                                    setIsEditModeScanning(false);
+                                                    handleEditManualStop(null); // Indicate manual stop without frame
+                                                 }} variant="outline" size="sm" className="mt-2">
+                                                     <X className="mr-1 h-3 w-3"/> Stop Scan
+                                                 </Button>
                                            </div>
                                        ) : (
                                             // Show Image or Placeholder
@@ -416,7 +424,7 @@ export default function AdminManageStudentsPage() {
                                                )}
                                                {/* Buttons to Scan/Upload */}
                                                 <div className="flex gap-2 mt-2">
-                                                     <Button variant="outline" size="sm" onClick={() => setIsEditModeScanning(true)} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
+                                                     <Button variant="outline" size="sm" onClick={() => { setIsEditModeScanning(true); setEditModeExtractionError(null); }} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
                                                           <Camera className="mr-1 h-3 w-3"/> Re-Scan
                                                      </Button>
                                                      <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}>
@@ -443,7 +451,7 @@ export default function AdminManageStudentsPage() {
                                        formId={`student-form-${studentToEdit.id}`} // Unique ID for the form
                                        onSubmit={handleEditSubmit}
                                        defaultValues={studentToEdit} // Pass the full student object
-                                       isLoading={isLoading || isEditModeExtracting || isEditModeUploading} // Disable form while loading/processing
+                                       isLoading={isLoading || isEditModeExtracting || isEditModeUploading || isEditModeScanning} // Disable form while loading/processing/scanning
                                        submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // This button is now external
                                        formTitle="" // Hide inner title/desc
                                        formDescription=""
@@ -454,7 +462,7 @@ export default function AdminManageStudentsPage() {
                        </div> {/* End padding container */}
                     </ScrollArea>
 
-                    <DialogFooter className="p-6 pt-4 border-t shrink-0"> {/* Add padding and border */}
+                    <DialogFooter> {/* Add padding and border */}
                        <DialogClose asChild>
                          <Button variant="outline" disabled={isLoading}>Cancel</Button>
                        </DialogClose>
@@ -474,7 +482,7 @@ export default function AdminManageStudentsPage() {
                                   console.error("Could not find form element to submit.");
                               }
                           }}
-                          disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} // Also disable save during image processing
+                          disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} // Also disable save during image processing/scanning
                         >
                           {isLoading ? 'Saving...' : 'Save Changes'}
                        </Button>
@@ -515,6 +523,3 @@ export default function AdminManageStudentsPage() {
     </div>
   );
 }
-
-
-    

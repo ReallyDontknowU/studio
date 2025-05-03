@@ -293,6 +293,8 @@ export default function AdminAddStudentPage() {
                         onManualStop={handleManualStop} // Pass the manual stop handler
                         scanPrompt="Position ID card inside the frame"
                         disabled={isExtracting || isSubmitting}
+                        capturedImageUri={capturedImageUri} // Pass the capturedImageUri state
+                        setCapturedImageUri={setCapturedImageUri} // Pass the setter function
                     />
                     {isExtracting && (
                         <div className="flex items-center justify-center gap-2 text-muted-foreground mt-4">
