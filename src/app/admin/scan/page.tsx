@@ -6,7 +6,7 @@ import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw } from 'lucide-react';
+import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw, ScanLine } from 'lucide-react';
 import { MIN_LIBRARY_INTERVAL_SECONDS } from '@/lib/constants';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
@@ -133,25 +133,24 @@ const playSound = (type: 'entry' | 'exit' | 'error') => {
 
 export default function AdminScanPage() {
   const { toast } = useToast();
-  const [isProcessing, setIsProcessing] = useState(false); // Unified processing state
+  const [isProcessing, setIsProcessing] = useState(false); // Unified processing state (blocks new scans/manual submits)
+  const [isExtracting, setIsExtracting] = useState(false); // Specific state for AI extraction indicator
   const [scanSessionError, setScanSessionError] = useState<string | null>(null);
   const [lastScanResult, setLastScanResult] = useState<LastScanResultType | null>(null);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null); // Only for display after processing
-  const [isExtracting, setIsExtracting] = useState(false); // Specific state for AI extraction
   const [manualStudentId, setManualStudentId] = useState(''); // State for manual ID input
-  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Ref for processing timeout
+  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Ref for processing result display timeout
 
   // Shared logic to process a student ID (from scan or manual)
   const sharedProcessLogic = useCallback(async (studentId: string, source: 'scan' | 'manual', scannedImageUri?: string) => {
         const logPrefix = `[sharedProcessLogic-${source}]`;
         console.log(`${logPrefix} Processing ID: ${studentId}`);
-        setIsProcessing(true); // Indicate processing start
-        setScanSessionError(null);
-        setLastScanResult(null);
-        // Clear previous result preview image
-        setCapturedImageUri(source === 'scan' ? scannedImageUri : null);
+        // setIsProcessing(true); // Moved: set by caller (processCapturedImage/handleManualSubmit)
+        setScanSessionError(null); // Clear session error
+        setLastScanResult(null); // Clear previous result immediately
+        setCapturedImageUri(source === 'scan' ? scannedImageUri : null); // Show scanned image for result
 
-        // Clear any existing processing timeout
+        // Clear any existing result display timeout
         if (processingTimeoutRef.current) {
            clearTimeout(processingTimeoutRef.current);
            processingTimeoutRef.current = null;
@@ -235,17 +234,20 @@ export default function AdminScanPage() {
 
         } finally {
              console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
-             setLastScanResult(resultState);
-             // Set a timeout to re-enable scanning after showing the result briefly
+             setLastScanResult(resultState); // Show the result card
+
+             // Set timeout to clear the result card and allow next scan/submit
              processingTimeoutRef.current = setTimeout(() => {
-                setIsProcessing(false); // Allow next scan
-                setIsExtracting(false);
-                console.log(`${logPrefix} Processing timeout finished, ready for next scan.`);
+                setIsProcessing(false); // Allow next scan/submit
+                setIsExtracting(false); // Ensure extraction indicator is off
+                setLastScanResult(null); // Clear the result card
+                setCapturedImageUri(null); // Clear the preview image
+                console.log(`${logPrefix} Processing timeout finished, ready for next action.`);
                 processingTimeoutRef.current = null; // Clear the ref
-            }, processSuccessful ? 2000 : 4000); // Shorter delay for success, longer for error
+            }, processSuccessful ? 3000 : 5000); // Shorter delay for success, longer for error
 
              if (source === 'manual') {
-                 setManualStudentId('');
+                 setManualStudentId(''); // Clear manual input field
              }
         }
   }, [toast]);
@@ -260,30 +262,38 @@ export default function AdminScanPage() {
     }
 
     console.log(`${logPrefix} Initiated with image data (length: ${imageDataUri.length})`);
-    setIsProcessing(true); // Set generic processing state (will prevent further captures)
+    setIsProcessing(true); // Set generic processing state (will prevent further captures/manual submits)
     setIsExtracting(true); // Start extraction indicator
-    setScanSessionError(null);
-    setLastScanResult(null);
-    setCapturedImageUri(imageDataUri); // Set image for potential result display
+    setScanSessionError(null); // Clear session error
+    // Do not clear lastScanResult here, let sharedProcessLogic handle it
+    // setCapturedImageUri(imageDataUri); // Moved to sharedProcessLogic
 
     try {
       console.log(`${logPrefix} Calling extractBarcodeData...`);
       const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
       console.log(`${logPrefix} Extraction result:`, extractionResult);
-      setIsExtracting(false); // End extraction indicator
+      setIsExtracting(false); // End extraction indicator (BEFORE calling shared logic)
 
       if (!extractionResult || !extractionResult.idNumber || extractionResult.idNumber.trim() === "") {
-        throw new Error("Could not extract a valid ID number from the barcode image.");
+          // If no ID is found, don't treat it as an error. Silently ignore and allow next scan.
+          console.log(`${logPrefix} No ID number extracted. Skipping processing.`);
+          // Reset processing state quickly to allow next scan attempt without long delay or error message
+          setIsProcessing(false);
+          setIsExtracting(false); // Ensure it's off
+          // Do NOT set LastScanResult or play error sound
+          return; // Exit early
       }
 
       const extractedId = extractionResult.idNumber.trim().toLowerCase();
+      // Call shared logic which will handle further processing, success/error display, and timeout
       await sharedProcessLogic(extractedId, 'scan', imageDataUri);
 
-    } catch (error: any) {
-      console.error(`${logPrefix} Error during extraction:`, error);
-      const errorMessage = error.message || 'An unknown error during barcode extraction.';
+    } catch (error: any) { // Catch errors specifically from the extractBarcodeData call itself
+      console.error(`${logPrefix} Error during extraction API call:`, error);
+      const errorMessage = error.message || 'An unknown error during barcode extraction API call.';
       toast({ title: 'Extraction Error', description: errorMessage, variant: 'destructive' });
       playSound('error');
+      setIsExtracting(false); // Ensure indicator is off on error
 
       setLastScanResult({
           student: { id: "Unknown", name: "Extraction Failed" },
@@ -295,13 +305,14 @@ export default function AdminScanPage() {
       // Use timeout to reset processing state after showing error
       if (processingTimeoutRef.current) clearTimeout(processingTimeoutRef.current);
       processingTimeoutRef.current = setTimeout(() => {
-            setIsProcessing(false);
-            setIsExtracting(false);
+            setIsProcessing(false); // Allow next action
+            setLastScanResult(null); // Clear result card
+            setCapturedImageUri(null); // Clear preview image
             console.log(`${logPrefix} Extraction error timeout finished.`);
             processingTimeoutRef.current = null;
-      }, 4000); // Longer display for error
+      }, 5000); // Longer display for error
     }
-    // sharedProcessLogic handles final state updates and timeout
+    // sharedProcessLogic now handles the final state reset (setIsProcessing(false)) via its own timeout
   }, [toast, isProcessing, sharedProcessLogic]);
 
 
@@ -317,24 +328,9 @@ export default function AdminScanPage() {
       duration: 8000,
     });
     playSound('error');
-    setIsProcessing(false);
+    setIsProcessing(false); // Ensure processing is stopped on scanner error
     setIsExtracting(false);
   }, [toast]);
-
-
-  // Manual Capture Start - still needed to initially activate the camera
-  const handleManualStartClick = useCallback(() => {
-     // This function remains the same, it just starts the BarcodeScanner component
-     // which will then run in autoScanMode if configured.
-     // We don't need the `isScannerActive` state in this component anymore.
-     console.log("[handleManualStartClick] Activating scanner (in autoScanMode)...");
-     setScanSessionError(null);
-     setLastScanResult(null);
-     setCapturedImageUri(null);
-     // The BarcodeScanner component handles its own activation via its internal state
-     // and the `useEffect` watching `isActive`. We just trigger the first start attempt.
-     // The button will be hidden once scanning starts.
-  }, []);
 
 
   // Handler for manual ID submission
@@ -350,7 +346,9 @@ export default function AdminScanPage() {
           console.log("[handleManualSubmit] Already processing, skipping.");
           return;
       }
+      setIsProcessing(true); // Set processing flag immediately
       sharedProcessLogic(trimmedId, 'manual');
+      // sharedProcessLogic now handles resetting isProcessing via timeout
   }, [manualStudentId, isProcessing, sharedProcessLogic, toast]);
 
    // Function to clear errors and results
@@ -358,8 +356,22 @@ export default function AdminScanPage() {
        setScanSessionError(null);
        setLastScanResult(null);
        setCapturedImageUri(null);
-       // Don't reset isProcessing here, let the timeout handle it
+       if (processingTimeoutRef.current) {
+            clearTimeout(processingTimeoutRef.current); // Clear timeout if status is manually dismissed
+            processingTimeoutRef.current = null;
+       }
+       setIsProcessing(false); // Immediately allow new actions if status cleared manually
+       setIsExtracting(false);
    }
+
+   // Effect to clean up timeout on unmount
+   useEffect(() => {
+       return () => {
+           if (processingTimeoutRef.current) {
+               clearTimeout(processingTimeoutRef.current);
+           }
+       };
+   }, []);
 
 
   return (
@@ -367,7 +379,7 @@ export default function AdminScanPage() {
       <Card className="w-full max-w-lg">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-primary">Record Entry/Exit</CardTitle>
-          <CardDescription>Scan ID barcode (auto-scan) or enter ID manually.</CardDescription>
+          <CardDescription>Auto-scan ID barcode or enter ID manually.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-6">
 
@@ -381,7 +393,7 @@ export default function AdminScanPage() {
                  placeholder="Enter Student ID"
                  value={manualStudentId}
                  onChange={(e) => setManualStudentId(e.target.value)}
-                 disabled={isProcessing} // Disable only if processing
+                 disabled={isProcessing} // Disable input while any processing is happening
                  className="text-base"
                />
              </div>
@@ -396,20 +408,22 @@ export default function AdminScanPage() {
           {/* Scanner Area - always present but controlled internally */}
           <div className="w-full">
                <BarcodeScanner
-                 onScanSuccess={processCapturedImage} // Process captured frames automatically
+                 // Pass necessary props for automatic scanning
+                 onScanSuccess={processCapturedImage}
                  onScanError={handleScannerError}
                  scanPrompt="Position ID card in frame..."
-                 setCapturedImageUri={setCapturedImageUri} // Pass setter for result display
                  autoScanMode={true} // Enable auto scanning
-                 isProcessing={isProcessing} // Pass processing status to scanner
+                 isProcessing={isProcessing} // Pass processing status to scanner to pause capture
                  captureInterval={1500} // Capture frame every 1.5 seconds (adjust as needed)
-                 // `disabled` prop can be used to completely disable scanner if needed externally
+                 // setCapturedImageUri is NOT needed for auto-scan processing, only for displaying final result image
+                 // setCapturedImageUri={setCapturedImageUri} // REMOVED
                  // onManualStop is not needed in autoScanMode
+                 // disabled prop could be used to completely disable scanner if needed
                />
           </div>
 
           {/* Last Scan/Manual Result Display */}
-          {lastScanResult && ( // Show result card while processing timeout is active or permanently if no timeout
+          {lastScanResult && ( // Show result card when lastScanResult is set
             <Card className={`w-full max-w-md mt-4 border-2 ${
               lastScanResult.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
               lastScanResult.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
@@ -418,63 +432,73 @@ export default function AdminScanPage() {
               <CardHeader>
                  <div className="flex justify-between items-start">
                     <CardTitle className="flex items-center gap-2 text-lg">
-                      {lastScanResult.log.type === 'Error' ? <><AlertCircle className="text-destructive" /> Processing Error</> :
-                      lastScanResult.log.type === 'Entry' ? <><LogIn className="text-green-600" /> Entry Recorded</> :
-                      <><LogOut className="text-red-600" /> Exit Recorded</>}
+                      {isExtracting && <Loader2 className="h-5 w-5 animate-spin" />}
+                      {!isExtracting && lastScanResult.log.type === 'Error' && <AlertCircle className="text-destructive" />}
+                      {!isExtracting && lastScanResult.log.type === 'Entry' && <LogIn className="text-green-600" />}
+                      {!isExtracting && lastScanResult.log.type === 'Exit' && <LogOut className="text-red-600" />}
+
+                      {isExtracting ? 'Processing...' :
+                       lastScanResult.log.type === 'Error' ? 'Processing Error' :
+                       lastScanResult.log.type === 'Entry' ? 'Entry Recorded' :
+                       'Exit Recorded'}
                     </CardTitle>
                     <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:bg-muted/50" onClick={clearStatus}>
                         <X className="h-4 w-4" />
                         <span className="sr-only">Clear Status</span>
                     </Button>
                 </div>
-                <CardDescription>
-                 {lastScanResult.log.type === 'Error' && lastScanResult.log.message ? lastScanResult.log.message :
-                    lastScanResult.log.timestamp ? `Recorded Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : "Details unavailable"}
-                </CardDescription>
+                {!isExtracting && (
+                  <CardDescription>
+                   {lastScanResult.log.type === 'Error' && lastScanResult.log.message ? lastScanResult.log.message :
+                      lastScanResult.log.timestamp ? `Recorded Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : "Details unavailable"}
+                  </CardDescription>
+                )}
               </CardHeader>
-              <CardContent className="text-sm space-y-3">
-                {/* Scanned Image */}
-                {lastScanResult.source === 'scan' && capturedImageUri && ( // Use capturedImageUri from state
-                  <div className="flex flex-col items-center mb-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">Scanned Image:</p>
-                    <Image
-                      src={capturedImageUri}
-                      alt="Scanned ID"
-                      width={100}
-                      height={150}
-                      className={`rounded border object-contain ${
-                        lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? 'border-yellow-500 border-2 shadow-md'
-                        : lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' ? 'border-green-500 border-2'
-                        : 'border-muted'
-                      }`}
-                      data-ai-hint="scanned id card result"
-                    />
-                    {/* Image Match Status */}
-                    {lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' && (
-                      <span className="text-xs text-yellow-600 font-semibold mt-1 animate-pulse">Image Mismatch! Verify ID.</span>
-                    )}
-                    {lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' && (
-                      <span className="text-xs text-green-600 font-semibold mt-1">Image Match Confirmed</span>
-                    )}
-                    {lastScanResult.imageMatch === undefined && lastScanResult.log.type !== 'Error' && (
-                      <span className="text-xs text-muted-foreground mt-1">(No registered image or comparison inconclusive)</span>
+              {!isExtracting && (
+                <CardContent className="text-sm space-y-3">
+                  {/* Scanned Image Preview */}
+                  {lastScanResult.source === 'scan' && capturedImageUri && (
+                    <div className="flex flex-col items-center mb-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Scanned Image:</p>
+                      <Image
+                        src={capturedImageUri}
+                        alt="Scanned ID"
+                        width={100}
+                        height={150}
+                        className={`rounded border object-contain ${
+                          lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? 'border-yellow-500 border-2 shadow-md'
+                          : lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' ? 'border-green-500 border-2'
+                          : 'border-muted'
+                        }`}
+                        data-ai-hint="scanned id card result"
+                      />
+                      {/* Image Match Status */}
+                      {lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' && (
+                        <span className="text-xs text-yellow-600 font-semibold mt-1 animate-pulse">Image Mismatch! Verify ID.</span>
+                      )}
+                      {lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' && (
+                        <span className="text-xs text-green-600 font-semibold mt-1">Image Match Confirmed</span>
+                      )}
+                      {lastScanResult.imageMatch === undefined && lastScanResult.log.type !== 'Error' && (
+                        <span className="text-xs text-muted-foreground mt-1">(No registered image or comparison inconclusive)</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Student Details */}
+                  <div>
+                    <p><strong>Student:</strong> {lastScanResult.student?.name || 'N/A'}</p>
+                    <p><strong>ID:</strong> {lastScanResult.student?.id?.toUpperCase() || 'N/A'}</p>
+                    {lastScanResult.log.type !== 'Error' && lastScanResult.student?.branch && (
+                      <p><strong>Branch:</strong> {lastScanResult.student.branch}</p>
                     )}
                   </div>
-                )}
-
-                {/* Student Details */}
-                <div>
-                  <p><strong>Student:</strong> {lastScanResult.student?.name || 'N/A'}</p>
-                  <p><strong>ID:</strong> {lastScanResult.student?.id?.toUpperCase() || 'N/A'}</p>
-                  {lastScanResult.log.type !== 'Error' && lastScanResult.student?.branch && (
-                    <p><strong>Branch:</strong> {lastScanResult.student.branch}</p>
-                  )}
-                </div>
-              </CardContent>
+                </CardContent>
+              )}
             </Card>
           )}
 
-          {/* Display General Scanner Session Errors */}
+          {/* Display General Scanner Session Errors (Only when not processing/showing result) */}
           {scanSessionError && !isProcessing && !lastScanResult && (
             <Alert variant="destructive" className="w-full max-w-md mt-4">
                <div className="flex justify-between items-start">

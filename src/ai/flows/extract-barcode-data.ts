@@ -19,10 +19,11 @@ const ExtractBarcodeDataInputSchema = z.object({
 });
 export type ExtractBarcodeDataInput = z.infer<typeof ExtractBarcodeDataInputSchema>;
 
+// Output schema remains the same, idNumber is a string.
 const ExtractBarcodeDataOutputSchema = z.object({
   idNumber: z
     .string()
-    .describe('The ID number extracted from the barcode image or text below it.'),
+    .describe('The ID number extracted from the barcode image or text below it. Returns an empty string "" if no ID number is found.'),
 });
 export type ExtractBarcodeDataOutput = z.infer<typeof ExtractBarcodeDataOutputSchema>;
 
@@ -45,10 +46,21 @@ const prompt = ai.definePrompt({
     schema: z.object({
       idNumber: z
         .string()
-        .describe('The ID number extracted from the barcode image or text below it.'),
+        .describe('The ID number extracted from the barcode image or text below it. Returns an empty string "" if no ID number is found.'),
     }),
   },
-  prompt: `You are an expert in extracting data from barcodes and images of ID cards.\n\nYou will be provided with an image of a barcode or an ID card. Your task is to extract the ID number from the barcode or the text below the barcode.\n\nHere is the barcode image: {{media url=barcodeImage}}\n\nExtract the ID number and provide it in the 'idNumber' field. If you cannot extract the ID number, return an empty string.`,
+  prompt: `You are an expert in extracting data from barcodes and images of ID cards.
+
+You will be provided with an image, likely containing a barcode or an ID card. Your primary task is to locate and extract the **ID number** printed **directly below the barcode**. This number might be labeled as "ID No.", "Student ID", "Barcode No.", or just be a sequence of numbers. It is usually distinct from any other numbers like phone numbers.
+
+Image: {{media url=barcodeImage}}
+
+**Instructions:**
+1.  Focus on the area directly below the barcode.
+2.  Identify the numeric or alphanumeric code present there.
+3.  Extract only this ID number.
+4.  **Crucially:** If you cannot confidently identify or extract an ID number specifically from the area below the barcode, return an empty string "" in the 'idNumber' field. Do not guess or return other text/numbers from the card.
+5.  Return the result in the specified JSON format.`,
 });
 
 const extractBarcodeDataFlow = ai.defineFlow<
@@ -61,7 +73,23 @@ const extractBarcodeDataFlow = ai.defineFlow<
     outputSchema: ExtractBarcodeDataOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    try {
+        const {output} = await prompt(input);
+        // Ensure idNumber is always a string, defaulting to empty if null/undefined (though prompt aims for "")
+        const validatedOutput: ExtractBarcodeDataOutput = {
+            idNumber: output?.idNumber ?? "",
+        };
+        console.log("ExtractBarcodeData Flow Output:", validatedOutput);
+        return validatedOutput;
+     } catch (error) {
+        console.error("Error in extractBarcodeDataFlow:", error);
+        // Return a default structure indicating failure
+        return {
+           idNumber: "", // Indicate failure by returning empty ID
+        };
+    }
   }
 );
+
+// Ensure the exported types match the schema definitions
+export type { ExtractBarcodeDataInput, ExtractBarcodeDataOutput };
