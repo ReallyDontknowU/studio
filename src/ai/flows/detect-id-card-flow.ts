@@ -30,8 +30,8 @@ export async function detectIdCard(input: DetectIdCardInput): Promise<DetectIdCa
 
 const detectIdCardPrompt = ai.definePrompt({
   name: 'detectIdCardPrompt',
-  // Use the default model configured in ai-instance (Gemini Flash), as it supports multimodal input
-  // Specifying a model here like 'groq/llama...' would likely fail due to lack of image support
+  // Use the default model configured in ai-instance (Gemini Flash), as it supports multimodal input.
+  // Attempting to use Groq LLaMA models here might fail as they may not support image input via the {{media}} helper in Genkit.
   input: {
     schema: DetectIdCardInputSchema,
   },
