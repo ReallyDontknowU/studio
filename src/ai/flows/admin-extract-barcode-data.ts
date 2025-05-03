@@ -34,6 +34,8 @@ export async function adminExtractBarcodeData(input: AdminExtractBarcodeDataInpu
 
 const adminExtractBarcodeDataPrompt = ai.definePrompt({
   name: 'adminExtractBarcodeDataPrompt',
+  // Explicitly set the model for this prompt
+  model: 'googleai/gemini-2.0-flash',
   input: {
     schema: z.object({
       photoDataUri: z
@@ -66,9 +68,9 @@ Image: {{media url=photoDataUri}}
 
 **Instructions:**
 1.  **Prioritize Student ID:** Find the numeric or alphanumeric code printed directly beneath the barcode. Ignore any numbers that look like phone numbers (e.g., starting with +91, having 10 digits, or containing hyphens in a phone number format).
-2.  **Accuracy over Completeness:** For \`studentName\`, \`branch\`, \`rollNo\`, and \`yearOfStudy\`, only extract the information if it is clearly printed and you are confident in its accuracy. If unsure or the field is not present, omit it or return null/undefined for that optional field. Do not guess or hallucinate information.
+2.  **Accuracy over Completeness:** For 'studentName', 'branch', 'rollNo', and 'yearOfStudy', only extract the information if it is clearly printed and you are confident in its accuracy. If unsure or the field is not present, omit it or return null/undefined for that optional field. Do not guess or hallucinate information.
 3.  **Output Format:** Return the extracted information strictly in the JSON format defined by the output schema.
-4.  **Student ID Guarantee:** Always return a value for \`studentId\`. If you absolutely cannot find any number below the barcode or identify the ID, return an empty string "" for \`studentId\`. Do not return null or omit the \`studentId\` field.
+4.  **Student ID Guarantee:** Always return a value for 'studentId'. If you absolutely cannot find any number below the barcode or identify the ID, return an empty string "" for 'studentId'. Do not return null or omit the 'studentId' field.
 `,
 });
 
@@ -83,6 +85,7 @@ const adminExtractBarcodeDataFlow = ai.defineFlow<
   },
   async input => {
     try {
+        // The prompt call will use the model specified in adminExtractBarcodeDataPrompt
         const {output} = await adminExtractBarcodeDataPrompt(input);
         // Ensure studentId is always a string, even if prompt returns null/undefined unexpectedly
         const validatedOutput = {

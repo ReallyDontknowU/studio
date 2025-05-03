@@ -33,6 +33,8 @@ export async function extractBarcodeData(input: ExtractBarcodeDataInput): Promis
 
 const prompt = ai.definePrompt({
   name: 'extractBarcodeDataPrompt',
+  // Explicitly set the model for this prompt
+  model: 'googleai/gemini-2.0-flash',
   input: {
     schema: z.object({
       barcodeImage: z
@@ -74,6 +76,7 @@ const extractBarcodeDataFlow = ai.defineFlow<
   },
   async input => {
     try {
+        // The prompt call will use the model specified in the prompt definition
         const {output} = await prompt(input);
         // Ensure idNumber is always a string, defaulting to empty if null/undefined (though prompt aims for "")
         const validatedOutput: ExtractBarcodeDataOutput = {

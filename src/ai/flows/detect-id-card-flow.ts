@@ -1,6 +1,6 @@
 'use server';
 /**
- * @fileOverview A Genkit flow to quickly detect if an image likely contains an ID card.
+ * @fileOverview A Genkit flow to quickly detect if an image likely contains an ID card using Groq's Llama 4 Scout model.
  *
  * - detectIdCard - A function that checks if an image contains an ID card.
  * - DetectIdCardInput - The input type for the detectIdCard function.
@@ -29,9 +29,9 @@ export async function detectIdCard(input: DetectIdCardInput): Promise<DetectIdCa
 }
 
 const detectIdCardPrompt = ai.definePrompt({
-  name: 'detectIdCardPrompt',
-  // Use the default model configured in ai-instance (Gemini Flash), as it supports multimodal input.
-  // Attempting to use Groq LLaMA models here might fail as they may not support image input via the {{media}} helper in Genkit.
+  name: 'detectIdCardPromptGroq', // Updated name to reflect model
+  // Explicitly use the Groq Llama 4 Scout model
+  model: 'groq/meta-llama/llama-4-scout-17b-16e-instruct',
   input: {
     schema: DetectIdCardInputSchema,
   },
@@ -50,7 +50,7 @@ Ignore images that are clearly just walls, desks, people without a visible card,
 
 Image: {{media url=imageDataUri}}
 
-Based on the visual evidence, is it likely that this image contains an ID card or similar document? Respond with only 'true' or 'false'.`,
+Based on the visual evidence, is it likely that this image contains an ID card or similar document? Respond with only 'true' or 'false' in the isIdCard field.`,
 });
 
 const detectIdCardFlow = ai.defineFlow<
@@ -64,16 +64,22 @@ const detectIdCardFlow = ai.defineFlow<
   },
   async input => {
     try {
-        // This prompt call will use the default model (Gemini Flash) configured in ai-instance.ts
+        // This prompt call will now use the specified Groq model.
         const { output } = await detectIdCardPrompt(input);
-        console.log("DetectIdCard Flow Output:", output);
+        console.log("DetectIdCard Flow Output (Groq):", output);
         // Ensure the output matches the schema, defaulting to false if unexpected
+        // The model is instructed to return true/false in the field directly.
         return {
             isIdCard: output?.isIdCard ?? false,
         };
-     } catch (error) {
-        console.error("Error in detectIdCardFlow:", error);
-        // Default to false in case of any error during detection
+     } catch (error: any) {
+        console.error("Error in detectIdCardFlow (Groq):", error);
+         // Check for specific Groq/Genkit errors related to image handling if needed
+         if (error.message?.includes("Media content part MIME type") || error.message?.includes("unsupported input modality")) {
+             console.error("Groq model via Genkit might not support the 'media' helper for this model version. Falling back to 'false'.");
+             return { isIdCard: false };
+         }
+        // Default to false in case of any other error during detection
         return {
            isIdCard: false,
         };

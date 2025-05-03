@@ -13,6 +13,6 @@ export const ai = genkit({
       apiKey: process.env.GROQ_API_KEY,
     }),
   ],
-  // Keep the default model as Gemini Flash for existing flows
-  model: 'googleai/gemini-2.0-flash',
+  // No default model specified; each prompt/flow should define its own model
+  // model: 'googleai/gemini-2.0-flash', // Removed default
 });
