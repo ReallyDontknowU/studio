@@ -1,3 +1,4 @@
+
 import type { Metadata } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import './globals.css';
@@ -7,6 +8,7 @@ import { ThemeToggleButton } from '@/components/theme-toggle-button'; // Import 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Home } from 'lucide-react'; // Import Home icon
+import { NetworkStatusIndicator } from '@/components/network-status-indicator'; // Import NetworkStatusIndicator
 
 export const metadata: Metadata = {
   title: 'SmartLibTrack',
@@ -19,7 +21,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${GeistSans.className}`} suppressHydrationWarning> {/* suppressHydrationWarning added for next-themes */}<head />{/* Added head tag to prevent whitespace issues */}
+    <html lang="en" className={`${GeistSans.className}`} suppressHydrationWarning> {/* suppressHydrationWarning added for next-themes */}
+      <head />{/* Added head tag to prevent whitespace issues */}
       <body className={`antialiased flex flex-col min-h-screen bg-background text-foreground`}>
         <ThemeProvider
           attribute="class"
@@ -41,6 +44,8 @@ export default function RootLayout({
                      <Home className="h-5 w-5" />
                    </Button>
                  </Link>
+                  {/* Network Status Indicator */}
+                 <NetworkStatusIndicator />
                  <ThemeToggleButton />
                </div>
             </div>
