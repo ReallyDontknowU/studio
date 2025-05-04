@@ -40,6 +40,7 @@ const AlertTitle = React.forwardRef<
   React.HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
   // Ensure title aligns properly even with icons from parent
+  // Allow overriding font-medium if needed (e.g., for font-semibold)
   <h5
     ref={ref}
     className={cn("mb-1 font-medium leading-none tracking-tight", className)}
