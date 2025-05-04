@@ -19,7 +19,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${GeistSans.className}`} suppressHydrationWarning> {/* suppressHydrationWarning added for next-themes */}
+    <html lang="en" className={`${GeistSans.className}`} suppressHydrationWarning> {/* suppressHydrationWarning added for next-themes */}<head />{/* Added head tag to prevent whitespace issues */}
       <body className={`antialiased flex flex-col min-h-screen bg-background text-foreground`}>
         <ThemeProvider
           attribute="class"
