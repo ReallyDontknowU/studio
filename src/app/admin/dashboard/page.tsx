@@ -5,7 +5,7 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { UserPlus, ScanBarcode, ListOrdered, BarChart3, Settings, Users } from 'lucide-react'; // Added Users icon
+import { UserPlus, ListOrdered, BarChart3, Settings, Users } from 'lucide-react'; // Removed ScanBarcode
 import { Separator } from '@/components/ui/separator';
 
 // Mock data function (replace with actual data fetching)
@@ -79,7 +79,7 @@ export default function AdminDashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Currently Inside</CardTitle>
-             <ScanBarcode className="h-4 w-4 text-muted-foreground" />
+             {/* Icon removed as scan functionality moved */}
           </CardHeader>
           <CardContent>
              <div className="text-2xl font-bold">{stats.currentlyInside}</div>
@@ -92,15 +92,13 @@ export default function AdminDashboardPage() {
 
       {/* Actions Section */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-         {/* Removed Add New Student Card */}
 
          <Card className="hover:shadow-md transition-shadow duration-200">
            <CardHeader>
              <CardTitle>Manage Students</CardTitle>
              <CardDescription>View, add, edit, or delete student records.</CardDescription>
            </CardHeader>
-           {/* Added mt-4 here for spacing */}
-           <CardContent className="mt-4 flex flex-col sm:flex-row gap-2"> {/* Use flex for buttons */}
+           <CardContent className="mt-4 flex flex-col sm:flex-row gap-2">
               <Link href="/admin/add-student" passHref className="flex-1">
                  <Button className="w-full transition-subtle">
                     <UserPlus className="mr-2" /> Add Student
@@ -114,20 +112,7 @@ export default function AdminDashboardPage() {
            </CardContent>
          </Card>
 
-        <Card className="hover:shadow-md transition-shadow duration-200">
-          <CardHeader>
-            <CardTitle>Record Entry/Exit</CardTitle>
-            <CardDescription>Scan student barcodes for entry or exit.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/admin/scan" passHref>
-              <Button variant="secondary" className="w-full transition-subtle">
-                <ScanBarcode className="mr-2" /> Scan Barcode
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
+         {/* Removed Record Entry/Exit Card */}
 
         <Card className="hover:shadow-md transition-shadow duration-200">
           <CardHeader>
@@ -173,4 +158,3 @@ export default function AdminDashboardPage() {
     </div>
   );
 }
-
