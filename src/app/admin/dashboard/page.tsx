@@ -5,7 +5,7 @@ import React from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { UserPlus, ListOrdered, BarChart3, Settings, Users } from 'lucide-react'; // Removed ScanBarcode
+import { UserPlus, ListOrdered, BarChart3, Settings, Users, KeyRound } from 'lucide-react'; // Added KeyRound for Settings
 import { Separator } from '@/components/ui/separator';
 
 // Mock data function (replace with actual data fetching)
@@ -112,8 +112,6 @@ export default function AdminDashboardPage() {
            </CardContent>
          </Card>
 
-         {/* Removed Record Entry/Exit Card */}
-
         <Card className="hover:shadow-md transition-shadow duration-200">
           <CardHeader>
             <CardTitle>Entry/Exit Log</CardTitle>
@@ -138,6 +136,20 @@ export default function AdminDashboardPage() {
             <Link href="/admin/branches" passHref>
               <Button variant="outline" className="w-full transition-subtle">
                 <Settings className="mr-2" /> Manage Branches
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow duration-200">
+          <CardHeader>
+            <CardTitle>Admin Settings</CardTitle>
+            <CardDescription>Change your login credentials.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/admin/settings" passHref>
+              <Button variant="outline" className="w-full transition-subtle">
+                <KeyRound className="mr-2" /> Change Credentials
               </Button>
             </Link>
           </CardContent>

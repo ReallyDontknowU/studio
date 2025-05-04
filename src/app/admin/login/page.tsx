@@ -1,6 +1,7 @@
+
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
+import { getAdminCredentials, initializeAdminCredentials } from '@/lib/admin-auth';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -18,19 +20,28 @@ export default function AdminLoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    // Initialize default admin credentials if they don't exist
+    initializeAdminCredentials();
+  }, []);
+
   const handleLogin = (event: React.FormEvent) => {
     event.preventDefault();
     setIsLoading(true);
     setError('');
 
-    // Basic validation (replace with actual authentication logic)
-    if (username === 'admin' && password === 'password') {
+    const storedCredentials = getAdminCredentials();
+
+    // Basic validation using localStorage credentials
+    if (username === storedCredentials.username && password === storedCredentials.password) {
       toast({
         title: 'Login Successful',
         description: 'Redirecting to admin dashboard...',
       });
       // Simulate network request
       setTimeout(() => {
+        // Optionally store a session token or flag in localStorage/sessionStorage
+        localStorage.setItem('isAdminLoggedIn', 'true'); // Simple flag, enhance for production
         router.push('/admin/dashboard');
         setIsLoading(false);
       }, 1000);
@@ -79,6 +90,13 @@ export default function AdminLoginPage() {
                 disabled={isLoading}
               />
             </div>
+             {/* Security Warning */}
+             <Alert variant="default" className="bg-yellow-100 border-yellow-300 dark:bg-yellow-900/30 dark:border-yellow-700">
+               <AlertCircle className="h-4 w-4 text-yellow-700 dark:text-yellow-400" />
+               <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-xs">
+                 Demo Login: Uses insecure localStorage. Do not use sensitive credentials. Default is admin/password.
+               </AlertDescription>
+             </Alert>
           </CardContent>
           <CardFooter>
             <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>

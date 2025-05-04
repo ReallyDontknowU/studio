@@ -1,7 +1,6 @@
 
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
-import { AlertCircle } from "lucide-react" // Added AlertCircle for destructive variant
 
 import { cn } from "@/lib/utils"
 
@@ -31,10 +30,6 @@ const Alert = React.forwardRef<
     className={cn(alertVariants({ variant }), className)}
     {...props}
   >
-     {/* Automatically add AlertCircle icon for destructive variant if no other icon is provided */}
-     {variant === "destructive" && !React.Children.toArray(children).some(child => React.isValidElement(child) && typeof child.type !== 'string' && (child.type as any).displayName?.includes('Icon')) && (
-        <AlertCircle className="h-4 w-4" /> // Use AlertCircle for destructive alerts
-     )}
     {children}
   </div>
 ))
@@ -44,6 +39,7 @@ const AlertTitle = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLHeadingElement>
 >(({ className, ...props }, ref) => (
+  // Ensure title aligns properly even with icons from parent
   <h5
     ref={ref}
     className={cn("mb-1 font-medium leading-none tracking-tight", className)}
@@ -56,6 +52,7 @@ const AlertDescription = React.forwardRef<
   HTMLParagraphElement,
   React.HTMLAttributes<HTMLParagraphElement>
 >(({ className, ...props }, ref) => (
+  // Ensure description aligns properly even with icons from parent
   <div
     ref={ref}
     className={cn("text-sm [&_p]:leading-relaxed", className)}
