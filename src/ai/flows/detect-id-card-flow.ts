@@ -29,7 +29,7 @@ export async function detectIdCard(input: DetectIdCardInput): Promise<DetectIdCa
 }
 
 const detectIdCardPrompt = ai.definePrompt({
-  name: 'detectIdCardPromptGemini', // Updated name to reflect model
+  name: 'detectIdCardPromptGemini',
   // Explicitly use Google AI Gemini Flash model (more reliable for vision)
   model: 'googleai/gemini-2.0-flash',
   input: {

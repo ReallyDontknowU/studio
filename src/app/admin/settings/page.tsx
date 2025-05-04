@@ -11,9 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, Save } from 'lucide-react'; // Added Save icon
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Corrected Alert import
+import { AlertCircle, Save, KeyRound, Info } from 'lucide-react'; // Added KeyRound, Info
 import { getAdminCredentials, saveAdminCredentials } from '@/lib/admin-auth';
+import { Separator } from '@/components/ui/separator'; // Import Separator
 
 // Zod schema for validation
 const settingsFormSchema = z.object({
@@ -98,18 +99,25 @@ export default function AdminSettingsPage() {
     }
   };
 
+  // Note: The application currently reads API keys directly from environment variables (.env file).
+  // Implementing a feature to store API keys within the admin UI would require significant
+  // backend changes (e.g., a secure database, API endpoints) and is beyond the scope of
+  // simple frontend adjustments. This UI section is informational only.
+
   return (
-    // Removed container div, place Card directly or wrap in a simple div if needed
-    <div className="flex justify-center">
-      {/* Apply enhanced card style */}
+    <div className="flex flex-col items-center gap-8">
+
+      {/* Change Credentials Card */}
       <Card className="w-full max-w-lg card-enhanced">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Admin Settings</CardTitle>
-          <CardDescription>Change your admin login username and password.</CardDescription>
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow flex items-center gap-2">
+            <KeyRound className="text-primary"/> Change Credentials
+          </CardTitle>
+          <CardDescription>Update your admin login username and password.</CardDescription>
         </CardHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleFormSubmit)}>
-            <CardContent className="space-y-4 pt-4"> {/* Added pt-4 */}
+            <CardContent className="space-y-4 pt-4">
               {error && (
                 <Alert variant="destructive" className="animate-in fade-in duration-300">
                   <AlertCircle className="h-4 w-4" />
@@ -180,6 +188,40 @@ export default function AdminSettingsPage() {
           </form>
         </Form>
       </Card>
+
+      {/* API Key Information Card */}
+      <Card className="w-full max-w-lg card-enhanced">
+        <CardHeader>
+            <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-cyan-500 drop-shadow flex items-center gap-2">
+              <Info className="text-teal-500"/> API Key Setup
+            </CardTitle>
+            <CardDescription>Information on the API keys required for AI features.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-4">
+           <Alert variant="default" className="border-l-4 border-primary"> {/* Use default variant with custom border */}
+              <Info className="h-4 w-4 text-primary" /> {/* Use primary color for icon */}
+              <AlertTitle>Google AI API Key</AlertTitle>
+              <AlertDescription>
+                The application uses the Google Generative AI (Gemini) models for image analysis (ID card detection and data extraction). You need a Google AI API key for these features to work.
+                <br /><br />
+                <strong>How to get a key:</strong>
+                <ol className="list-decimal list-inside mt-1 space-y-1 text-sm">
+                  <li>Visit the <a href="https://ai.google.dev/" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Google AI Developer site</a>.</li>
+                  <li>Follow the instructions to create an API key.</li>
+                  <li>Once you have the key, you need to set it as an environment variable named <strong>`GOOGLE_GENAI_API_KEY`</strong> in your project's <strong>`.env`</strong> file.</li>
+                  <li>Restart the application after adding the key to the `.env` file.</li>
+                </ol>
+                <br />
+                 <strong>Current Setup:</strong> API keys are currently managed via the <strong>`.env`</strong> file in the project's root directory. Storing keys directly in the admin interface is not implemented for security reasons.
+              </AlertDescription>
+           </Alert>
+           {/* Removed Groq section as the model is removed */}
+        </CardContent>
+        <CardFooter>
+            <p className="text-xs text-muted-foreground">Ensure your API keys are kept confidential and are not exposed in client-side code or public repositories.</p>
+        </CardFooter>
+      </Card>
+
     </div>
   );
 }

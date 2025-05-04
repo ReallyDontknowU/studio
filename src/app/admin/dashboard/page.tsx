@@ -155,12 +155,12 @@ export default function AdminDashboardPage() {
         <Card className="card-enhanced">
           <CardHeader>
             <CardTitle>Admin Settings</CardTitle>
-            <CardDescription>Change your login credentials.</CardDescription>
+            <CardDescription>Change login credentials & view API key info.</CardDescription> {/* Updated description */}
           </CardHeader>
           <CardContent className="pt-4"> {/* Adjusted padding */}
             <Link href="/admin/settings" passHref>
               <Button variant="outline" className="w-full transition-subtle hover:scale-[1.02]">
-                <KeyRound className="mr-2" /> Change Credentials
+                <KeyRound className="mr-2" /> Admin Settings {/* Changed icon to KeyRound */}
               </Button>
             </Link>
           </CardContent>
