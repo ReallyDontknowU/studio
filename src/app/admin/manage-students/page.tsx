@@ -260,7 +260,8 @@ export default function AdminManageStudentsPage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    // Removed container div as layout now provides it
+    <div>
       {/* Apply enhanced card style */}
       <Card className="card-enhanced">
         <CardHeader>
@@ -385,7 +386,7 @@ export default function AdminManageStudentsPage() {
                                                    onManualStop={handleEditManualStop}
                                                    scanPrompt="Position ID card..."
                                                    disabled={isEditModeExtracting}
-                                                   setCapturedImageUri={setEditModeCapturedImageUri}
+                                                   setCapturedImageUri={setEditModeCapturedImageUri} // Pass setter
                                                    showStopButton={true} // Show stop button in edit mode scan
                                                />
                                                 {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2 text-primary" />}

@@ -56,7 +56,8 @@ export default function AdminDashboardPage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    // Removed container div as layout now provides it
+    <div>
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Admin Dashboard</h1>
         <p className="text-muted-foreground">Manage library resources and track student activity.</p>

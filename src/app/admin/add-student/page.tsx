@@ -106,7 +106,7 @@ export default function AdminAddStudentPage() {
 
     console.log("Processing image:", imageDataUri.substring(0, 50) + "...");
     // Keep the captured image URI in state, already set by the scanner callback
-    // setCapturedImageUri(imageDataUri); // No need to set it again here
+    setCapturedImageUri(imageDataUri); // Explicitly set image URI from scan/upload
     setExtractedData(null); // Clear previous extraction
     setExtractionError(null);
     setIsExtracting(true);
@@ -175,8 +175,7 @@ export default function AdminAddStudentPage() {
    // Receives the image URI from the scanner component
    const handleManualStop = useCallback((imageDataUri: string | null) => {
     console.log("Manual Stop - received image data (or null):", imageDataUri ? imageDataUri.substring(0, 50) + "..." : null);
-    // The image URI is already set in the state by the scanner's setCapturedImageUri prop
-    setCapturedImageUri(imageDataUri); // Explicitly set the image URI here upon stopping
+    // The image URI is set in the state by the scanner's setCapturedImageUri prop via processImage
     processImage(imageDataUri); // Process the captured frame (or null)
    }, [processImage]); // Depend on processImage
 
@@ -187,7 +186,7 @@ export default function AdminAddStudentPage() {
       reader.onloadend = () => {
         if (typeof reader.result === 'string') {
           console.log("File Read Success - processing image.");
-          setCapturedImageUri(reader.result); // Set image URI from upload
+          // setCapturedImageUri is called within processImage
           processImage(reader.result);
         } else {
            setExtractionError("Failed to read the uploaded file.");
@@ -284,7 +283,8 @@ export default function AdminAddStudentPage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8 flex flex-col items-center gap-8">
+    // Removed container div, using layout's container
+    <div className="flex flex-col items-center gap-8">
        {/* Apply enhanced card style */}
        <Card className="w-full max-w-2xl card-enhanced">
           <CardHeader className="text-center">

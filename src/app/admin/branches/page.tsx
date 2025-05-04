@@ -106,7 +106,8 @@ export default function AdminBranchesPage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8 flex justify-center">
+    // Removed container div, place Card directly or wrap in a simple div if needed
+    <div className="flex justify-center">
       {/* Apply enhanced card style */}
       <Card className="w-full max-w-2xl card-enhanced">
         <CardHeader>

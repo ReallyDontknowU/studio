@@ -221,7 +221,8 @@ export default function AdminLogsPage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    // Removed container div as layout now provides it
+    <div>
       {/* Apply enhanced card style */}
       <Card className="card-enhanced">
         <CardHeader>

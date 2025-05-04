@@ -6,14 +6,16 @@ import { UserCog, ScanBarcode } from 'lucide-react'; // Added ScanBarcode icon
 
 export default function Home() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-gradient-futuristic-light dark:bg-gradient-futuristic-dark">
-      {/* Apply enhanced card style */}
+    // Use container class from layout for consistent padding
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-12rem)]"> {/* Adjust min-height considering header/footer */}
       <Card className="w-full max-w-md card-enhanced">
         <CardHeader className="text-center">
-          <CardTitle className="text-3xl font-bold text-primary drop-shadow-sm">SmartLibTrack</CardTitle>
+          <CardTitle className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">
+             SmartLibTrack
+          </CardTitle>
           <CardDescription>Futuristic Library Entry & Exit Management</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 items-center pt-4"> {/* Added pt-4 */}
+        <CardContent className="flex flex-col gap-4 items-center pt-6"> {/* Increased padding top */}
           {/* Public Scan Button */}
           <Link href="/scan" passHref className="w-full max-w-xs">
             <Button variant="secondary" className="w-full transition-subtle hover:scale-[1.02]">
@@ -31,9 +33,7 @@ export default function Home() {
           </Link>
         </CardContent>
       </Card>
-      <footer className="mt-8 text-sm text-muted-foreground/80"> {/* Slightly muted footer */}
-        © {new Date().getFullYear()} SmartLibTrack. All rights reserved.
-      </footer>
+      {/* Footer is now in layout.tsx */}
     </div>
   );
 }
