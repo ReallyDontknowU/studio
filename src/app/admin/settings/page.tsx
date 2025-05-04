@@ -169,13 +169,7 @@ export default function AdminSettingsPage() {
                   </FormItem>
                 )}
               />
-               {/* Security Warning */}
-              <Alert variant="default" className="bg-yellow-100 border-yellow-300 dark:bg-yellow-900/30 dark:border-yellow-700">
-                 <AlertCircle className="h-4 w-4 text-yellow-700 dark:text-yellow-400" />
-                 <AlertDescription className="text-yellow-800 dark:text-yellow-300 text-xs">
-                   Credentials are stored insecurely in browser localStorage for this demo. Use strong, unique passwords in production with proper server-side authentication.
-                 </AlertDescription>
-              </Alert>
+               {/* Security Warning removed */}
             </CardContent>
             <CardFooter>
               <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
@@ -188,3 +182,4 @@ export default function AdminSettingsPage() {
     </div>
   );
 }
+
