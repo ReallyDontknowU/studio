@@ -44,19 +44,28 @@ export default function AdminDashboardPage() {
     // Fetch stats on mount and potentially set up an interval or listener
     // for localStorage changes if real-time updates are desired.
     setStats(getDashboardStats());
+
+    // Optional: Listener for localStorage changes
+    const handleStorageChange = () => {
+      setStats(getDashboardStats());
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+
   }, []); // Re-run if dependencies change (e.g., navigation events)
 
 
   return (
     <div className="container mx-auto px-4 py-8">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-primary">Admin Dashboard</h1>
+        <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Admin Dashboard</h1>
         <p className="text-muted-foreground">Manage library resources and track student activity.</p>
       </header>
 
       {/* Stats Section */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <Card>
+        {/* Apply enhanced card style and hover effect */}
+        <Card className="card-enhanced transition-transform duration-200 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Students</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -66,7 +75,7 @@ export default function AdminDashboardPage() {
              <p className="text-xs text-muted-foreground">Registered in the system</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="card-enhanced transition-transform duration-200 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Entries Today</CardTitle>
             <ListOrdered className="h-4 w-4 text-muted-foreground" />
@@ -76,7 +85,7 @@ export default function AdminDashboardPage() {
              <p className="text-xs text-muted-foreground">Student entries recorded today</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="card-enhanced transition-transform duration-200 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Currently Inside</CardTitle>
              {/* Icon removed as scan functionality moved */}
@@ -88,38 +97,39 @@ export default function AdminDashboardPage() {
         </Card>
       </section>
 
-      <Separator className="my-8" />
+      <Separator className="my-8 bg-border/50" /> {/* Make separator slightly lighter */}
 
       {/* Actions Section */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
 
-         <Card className="hover:shadow-md transition-shadow duration-200">
+         {/* Apply enhanced card style */}
+         <Card className="card-enhanced">
            <CardHeader>
              <CardTitle>Manage Students</CardTitle>
              <CardDescription>View, add, edit, or delete student records.</CardDescription>
            </CardHeader>
            <CardContent className="mt-4 flex flex-col sm:flex-row gap-2">
               <Link href="/admin/add-student" passHref className="flex-1">
-                 <Button className="w-full transition-subtle">
+                 <Button className="w-full transition-subtle hover:scale-[1.02]">
                     <UserPlus className="mr-2" /> Add Student
                  </Button>
               </Link>
               <Link href="/admin/manage-students" passHref className="flex-1">
-                <Button variant="outline" className="w-full transition-subtle">
+                <Button variant="outline" className="w-full transition-subtle hover:scale-[1.02]">
                   <Users className="mr-2" /> View/Edit Students
                 </Button>
               </Link>
            </CardContent>
          </Card>
 
-        <Card className="hover:shadow-md transition-shadow duration-200">
+        <Card className="card-enhanced">
           <CardHeader>
             <CardTitle>Entry/Exit Log</CardTitle>
             <CardDescription>View and manage student entry and exit records.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4"> {/* Adjusted padding */}
             <Link href="/admin/logs" passHref>
-              <Button variant="outline" className="w-full transition-subtle">
+              <Button variant="outline" className="w-full transition-subtle hover:scale-[1.02]">
                 <ListOrdered className="mr-2" /> View Logs
               </Button>
             </Link>
@@ -127,41 +137,41 @@ export default function AdminDashboardPage() {
         </Card>
 
 
-         <Card className="hover:shadow-md transition-shadow duration-200">
+         <Card className="card-enhanced">
           <CardHeader>
             <CardTitle>Manage Branches</CardTitle>
             <CardDescription>Add or edit library branches/departments.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4"> {/* Adjusted padding */}
             <Link href="/admin/branches" passHref>
-              <Button variant="outline" className="w-full transition-subtle">
+              <Button variant="outline" className="w-full transition-subtle hover:scale-[1.02]">
                 <Settings className="mr-2" /> Manage Branches
               </Button>
             </Link>
           </CardContent>
         </Card>
 
-        <Card className="hover:shadow-md transition-shadow duration-200">
+        <Card className="card-enhanced">
           <CardHeader>
             <CardTitle>Admin Settings</CardTitle>
             <CardDescription>Change your login credentials.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4"> {/* Adjusted padding */}
             <Link href="/admin/settings" passHref>
-              <Button variant="outline" className="w-full transition-subtle">
+              <Button variant="outline" className="w-full transition-subtle hover:scale-[1.02]">
                 <KeyRound className="mr-2" /> Change Credentials
               </Button>
             </Link>
           </CardContent>
         </Card>
 
-         <Card className="hover:shadow-md transition-shadow duration-200">
+         <Card className="card-enhanced opacity-60"> {/* Dimmed disabled card */}
           <CardHeader>
             <CardTitle>Reporting</CardTitle>
             <CardDescription>Generate usage reports (feature coming soon).</CardDescription>
           </CardHeader>
-          <CardContent>
-             <Button variant="ghost" className="w-full transition-subtle" disabled>
+          <CardContent className="pt-4"> {/* Adjusted padding */}
+             <Button variant="ghost" className="w-full transition-subtle text-muted-foreground" disabled>
                 <BarChart3 className="mr-2" /> View Reports
              </Button>
           </CardContent>

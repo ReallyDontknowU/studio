@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Save } from 'lucide-react'; // Added Save icon
 import { getAdminCredentials, saveAdminCredentials } from '@/lib/admin-auth';
 
 // Zod schema for validation
@@ -100,22 +100,23 @@ export default function AdminSettingsPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 flex justify-center">
-      <Card className="w-full max-w-lg">
+      {/* Apply enhanced card style */}
+      <Card className="w-full max-w-lg card-enhanced">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-primary">Admin Settings</CardTitle>
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Admin Settings</CardTitle>
           <CardDescription>Change your admin login username and password.</CardDescription>
         </CardHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleFormSubmit)}>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4"> {/* Added pt-4 */}
               {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="animate-in fade-in duration-300">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
 
-             <p className="text-sm text-muted-foreground">Current Username: <strong>{currentUsername}</strong></p>
+             <p className="text-sm text-muted-foreground">Current Username: <strong className="text-foreground">{currentUsername}</strong></p>
 
               <FormField
                 control={form.control}
@@ -124,7 +125,7 @@ export default function AdminSettingsPage() {
                   <FormItem>
                     <FormLabel>Current Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Enter your current password" {...field} disabled={isLoading} />
+                      <Input type="password" placeholder="Enter your current password" {...field} disabled={isLoading} className="transition-subtle" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -137,7 +138,7 @@ export default function AdminSettingsPage() {
                   <FormItem>
                     <FormLabel>New Username</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter new username" {...field} disabled={isLoading} />
+                      <Input placeholder="Enter new username (min. 3 characters)" {...field} disabled={isLoading} className="transition-subtle" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -150,7 +151,7 @@ export default function AdminSettingsPage() {
                   <FormItem>
                     <FormLabel>New Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Enter new password (min. 6 characters)" {...field} disabled={isLoading} />
+                      <Input type="password" placeholder="Enter new password (min. 6 characters)" {...field} disabled={isLoading} className="transition-subtle" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -163,17 +164,16 @@ export default function AdminSettingsPage() {
                   <FormItem>
                     <FormLabel>Confirm New Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Confirm your new password" {...field} disabled={isLoading} />
+                      <Input type="password" placeholder="Confirm your new password" {...field} disabled={isLoading} className="transition-subtle" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-               {/* Security Warning removed */}
             </CardContent>
             <CardFooter>
-              <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
-                {isLoading ? 'Saving...' : 'Save Changes'}
+              <Button type="submit" className="w-full transition-subtle hover:scale-[1.02]" disabled={isLoading}>
+                {isLoading ? 'Saving...' : <><Save className="mr-2 h-4 w-4"/> Save Changes</>}
               </Button>
             </CardFooter>
           </form>
@@ -182,4 +182,3 @@ export default function AdminSettingsPage() {
     </div>
   );
 }
-

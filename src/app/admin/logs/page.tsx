@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -57,7 +58,7 @@ const exportDataToCsv = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
 
     console.log(`Exporting ${data.length} records to CSV...`);
 
-    const headers = ['Timestamp', 'Student Name', 'Student ID', 'Branch', 'Type'];
+    const headers = ['Timestamp', 'Student Name', 'Student ID', 'Branch', 'Type', 'Image Match']; // Added Image Match header
     const csvRows = [
         headers.join(','), // Header row
         ...data.map(log => [
@@ -65,7 +66,8 @@ const exportDataToCsv = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
             escapeCsvField(log.studentName),
             escapeCsvField(log.studentId),
             escapeCsvField(log.branch),
-            escapeCsvField(log.type)
+            escapeCsvField(log.type),
+            escapeCsvField(log.imageMatch === undefined ? 'N/A' : log.imageMatch ? 'Yes' : 'No') // Handle image match status
         ].join(','))
     ];
 
@@ -112,7 +114,7 @@ const exportDataToPdf = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
 
   try {
     const doc = new jsPDF();
-    const tableColumn = ["Timestamp", "Student Name", "Student ID", "Branch", "Type"];
+    const tableColumn = ["Timestamp", "Student Name", "Student ID", "Branch", "Type", "Image Match"]; // Added Image Match
     const tableRows: (string | null | undefined)[][] = [];
 
     data.forEach(log => {
@@ -121,7 +123,8 @@ const exportDataToPdf = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
         log.studentName,
         log.studentId,
         log.branch,
-        log.type
+        log.type,
+        log.imageMatch === undefined ? 'N/A' : log.imageMatch ? 'Yes' : 'No' // Handle image match status
       ];
       tableRows.push(logData);
     });
@@ -137,8 +140,16 @@ const exportDataToPdf = (data: EntryLog[], toast: ReturnType<typeof useToast>['t
       body: tableRows,
       startY: 35,
       theme: 'grid', // or 'striped', 'plain'
-      headStyles: { fillColor: [22, 160, 133] }, // Example header style
-      styles: { fontSize: 10 },
+      headStyles: { fillColor: [22, 160, 133] }, // Example header style (consider using theme colors)
+      styles: { fontSize: 10, cellPadding: 2 }, // Added cellPadding
+      columnStyles: {
+          0: { cellWidth: 35 }, // Timestamp
+          1: { cellWidth: 40 }, // Name
+          2: { cellWidth: 25 }, // ID
+          3: { cellWidth: 25 }, // Branch
+          4: { cellWidth: 18 }, // Type
+          5: { cellWidth: 22 }, // Image Match
+      }
     });
 
     const currentDate = format(new Date(), 'yyyyMMdd');
@@ -203,94 +214,110 @@ export default function AdminLogsPage() {
         setSearchTerm('');
         setFilterBranch('all');
         setFilterType('all');
+        toast({ title: "Filters Cleared", description: "Showing all log entries." });
    };
+
+   const hasActiveFilters = searchTerm || filterBranch !== 'all' || filterType !== 'all';
 
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <Card>
+      {/* Apply enhanced card style */}
+      <Card className="card-enhanced">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-primary">Entry/Exit Log</CardTitle>
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Entry/Exit Log</CardTitle>
           <CardDescription>View all recorded student library visits.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4"> {/* Added pt-4 */}
             {/* Filtering and Export Controls */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center flex-wrap"> {/* Added flex-wrap */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-6 items-center flex-wrap p-4 border rounded-md bg-muted/50"> {/* Added padding and background */}
                <Input
                   placeholder="Search by Name or ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="max-w-xs flex-shrink-0" // Prevent shrinking too much
+                  className="max-w-xs flex-grow sm:flex-grow-0 transition-subtle" // Allow growing on small screens
                />
-                <Select value={filterBranch} onValueChange={setFilterBranch}>
-                    <SelectTrigger className="w-[180px] flex-shrink-0">
-                        <SelectValue placeholder="Filter by Branch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All Branches</SelectItem>
-                        {BRANCHES.map(branch => (
-                            <SelectItem key={branch} value={branch}>{branch}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                 <Select value={filterType} onValueChange={setFilterType}>
-                    <SelectTrigger className="w-[180px] flex-shrink-0">
-                        <SelectValue placeholder="Filter by Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All Types</SelectItem>
-                        <SelectItem value="Entry">Entry Only</SelectItem>
-                        <SelectItem value="Exit">Exit Only</SelectItem>
-                    </SelectContent>
-                </Select>
-                <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" className={`flex-shrink-0 ${ (searchTerm || filterBranch !== 'all' || filterType !== 'all') ? 'visible' : 'invisible'}`}>
+               <div className="flex gap-3 flex-wrap"> {/* Group selects */}
+                  <Select value={filterBranch} onValueChange={setFilterBranch}>
+                      <SelectTrigger className="w-full sm:w-[180px] transition-subtle">
+                          <SelectValue placeholder="Filter by Branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                          <SelectItem value="all">All Branches</SelectItem>
+                          {BRANCHES.map(branch => (
+                              <SelectItem key={branch} value={branch}>{branch}</SelectItem>
+                          ))}
+                      </SelectContent>
+                  </Select>
+                   <Select value={filterType} onValueChange={setFilterType}>
+                      <SelectTrigger className="w-full sm:w-[160px] transition-subtle"> {/* Slightly smaller */}
+                          <SelectValue placeholder="Filter by Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                          <SelectItem value="all">All Types</SelectItem>
+                          <SelectItem value="Entry">Entry Only</SelectItem>
+                          <SelectItem value="Exit">Exit Only</SelectItem>
+                      </SelectContent>
+                  </Select>
+               </div>
+                <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" className={`transition-opacity ${hasActiveFilters ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                     <X className="h-4 w-4" />
                 </Button>
-                <div className="flex-grow"></div> {/* Spacer */}
+                <div className="hidden sm:flex-grow"></div> {/* Spacer for larger screens */}
                  {/* Export Buttons Group */}
-                 <div className="flex gap-2 flex-wrap flex-shrink-0">
-                     <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm">
-                         <Download className="mr-2 h-4 w-4" /> Export CSV
+                 <div className="flex gap-2 flex-wrap justify-end w-full sm:w-auto"> {/* Justify end on small screens */}
+                     <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
+                         <Download className="mr-2 h-4 w-4" /> CSV
                      </Button>
-                     <Button onClick={() => exportDataToPdf(filteredLogs, toast)} variant="outline" size="sm">
-                        <FileText className="mr-2 h-4 w-4" /> Export PDF
+                     <Button onClick={() => exportDataToPdf(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
+                        <FileText className="mr-2 h-4 w-4" /> PDF
                      </Button>
                  </div>
             </div>
 
-          <div className="border rounded-md overflow-hidden">
+          <div className="border rounded-md overflow-hidden shadow-inner bg-background"> {/* Added shadow-inner */}
             <Table>
               <TableCaption>A list of recent student entries and exits.</TableCaption>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-muted/50"> {/* Subtle header background */}
                   <TableHead>Timestamp</TableHead>
                   <TableHead>Student Name</TableHead>
                   <TableHead>Student ID</TableHead>
                   <TableHead>Branch</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Image Match</TableHead> {/* Added Image Match column */}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredLogs.length > 0 ? (
                   filteredLogs.map((log) => (
-                    <TableRow key={log.id}>
+                    <TableRow key={log.id} className="transition-colors duration-150 hover:bg-muted/60"> {/* Smoother hover */}
                       <TableCell>{format(log.timestamp, 'Pp')}</TableCell> {/* Format date and time */}
                       <TableCell className="font-medium">{log.studentName}</TableCell>
                       <TableCell>{log.studentId}</TableCell>
                       <TableCell>{log.branch}</TableCell>
                       <TableCell>
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          log.type === 'Entry' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide ${ // Improved badge styling
+                          log.type === 'Entry' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
                         }`}>
                           {log.type}
                         </span>
                       </TableCell>
+                       <TableCell>
+                           <span className={`text-xs font-medium ${
+                               log.imageMatch === true ? 'text-green-600 dark:text-green-400' :
+                               log.imageMatch === false ? 'text-yellow-600 dark:text-yellow-400' :
+                               'text-muted-foreground'
+                           }`}>
+                               {log.imageMatch === undefined ? 'N/A' : log.imageMatch ? 'Yes' : 'No'}
+                           </span>
+                        </TableCell>
                     </TableRow>
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center">
-                      No logs found matching your criteria.
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground"> {/* Increased colSpan */}
+                      {hasActiveFilters ? 'No logs found matching your criteria.' : 'No log entries yet.'}
                     </TableCell>
                   </TableRow>
                 )}

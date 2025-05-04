@@ -3,91 +3,94 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif; /* Prioritize Geist Sans, removed Geist Mono */
 }
 
 @layer base {
   :root {
-    /* Light Theme */
-    --background: 0 0% 98%; /* Light Grey */
-    --foreground: 0 0% 3.9%; /* Dark Grey */
-    --card: 0 0% 100%; /* White */
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 206 70% 51%; /* Muted Blue (#3498db) */
-    --primary-foreground: 0 0% 98%; /* White */
-    --secondary: 0 0% 96.1%; /* Light Grey */
-    --secondary-foreground: 0 0% 9%; /* Dark Grey */
-    --muted: 0 0% 90%; /* Slightly darker grey for muted */
-    --muted-foreground: 0 0% 45.1%; /* Mid Grey */
-    --accent: 180 100% 25%; /* Teal (#008080) */
-    --accent-foreground: 0 0% 98%; /* White */
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%; /* Light Grey */
-    --input: 0 0% 89.8%; /* Light Grey */
-    --ring: 206 70% 51%; /* Muted Blue for focus rings */
-    --chart-1: 206 70% 51%; /* Muted Blue */
-    --chart-2: 180 100% 25%; /* Teal */
-    --chart-3: 210 40% 96.1%; /* Light Blue-Grey */
+    /* Light Theme - Futuristic Cool Tones */
+    --background: 210 40% 98%; /* Very light cool grey */
+    --foreground: 222 84% 4.9%; /* Dark blue-grey */
+    --card: 210 40% 100%; /* White */
+    --card-foreground: 222 84% 4.9%;
+    --popover: 210 40% 100%;
+    --popover-foreground: 222 84% 4.9%;
+    --primary: 217 91% 60%; /* Vibrant Blue */
+    --primary-foreground: 210 40% 98%; /* White */
+    --secondary: 210 40% 96.1%; /* Light cool grey */
+    --secondary-foreground: 222 47% 11%; /* Slightly darker blue-grey */
+    --muted: 210 40% 90%; /* Medium cool grey */
+    --muted-foreground: 215 28% 45%; /* Muted blue-grey */
+    --accent: 173 90% 36%; /* Teal */
+    --accent-foreground: 210 40% 98%; /* White */
+    --destructive: 0 72% 51%; /* Standard Red */
+    --destructive-foreground: 0 0% 98%; /* White */
+    --border: 214 32% 91%; /* Light cool grey border */
+    --input: 214 32% 91%;
+    --ring: 217 91% 60%; /* Vibrant Blue for focus */
+    --chart-1: 217 91% 60%; /* Vibrant Blue */
+    --chart-2: 173 90% 36%; /* Teal */
+    --chart-3: 280 80% 60%; /* Purple */
     --chart-4: 43 74% 66%; /* Yellowish */
     --chart-5: 27 87% 67%; /* Orangeish */
-    --radius: 0.5rem;
+    --radius: 0.75rem; /* Slightly more rounded */
 
-    /* Sidebar specific vars (can be adjusted if sidebar needed) */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 0 0% 3.9%;
-    --sidebar-primary: 206 70% 51%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 180 100% 25%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 0 0% 89.8%;
-    --sidebar-ring: 206 70% 51%;
+    /* Sidebar specific vars (match main theme) */
+    --sidebar-background: 210 40% 98%;
+    --sidebar-foreground: 222 84% 4.9%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 173 90% 36%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 217 91% 60%;
   }
 
   .dark {
-    /* Define dark theme variables if needed in the future */
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 206 70% 51%; /* Muted Blue */
-    --primary-foreground: 0 0% 98%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 180 100% 25%; /* Teal */
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    /* Dark Theme - Futuristic Neon/Cyberpunk Inspired */
+    --background: 225 20% 6%; /* Deep Dark Blue/Indigo */
+    --foreground: 210 40% 98%; /* Almost White */
+    --card: 225 20% 9%; /* Slightly Lighter Dark Blue */
+    --card-foreground: 210 40% 98%;
+    --popover: 225 20% 6%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 190 95% 55%; /* Bright Cyan */
+    --primary-foreground: 225 20% 4%; /* Very Dark Blue */
+    --secondary: 225 15% 18%; /* Dark Grey-Blue */
+    --secondary-foreground: 210 40% 96%; /* Light Grey */
+    --muted: 225 15% 14%; /* Darker Grey-Blue */
+    --muted-foreground: 210 40% 60%; /* Mid-Light Grey */
+    --accent: 270 90% 65%; /* Vibrant Purple */
+    --accent-foreground: 210 40% 98%; /* White */
+    --destructive: 0 80% 60%; /* Brighter Red */
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 206 70% 51%;
-    --chart-1: 206 70% 51%;
-    --chart-2: 180 100% 25%;
-    --chart-3: 210 40% 96.1%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --border: 225 15% 20%; /* Dark Blue Border */
+    --input: 225 15% 20%;
+    --ring: 190 95% 55%; /* Bright Cyan for focus */
+    --chart-1: 190 95% 55%; /* Bright Cyan */
+    --chart-2: 270 90% 65%; /* Vibrant Purple */
+    --chart-3: 330 90% 60%; /* Pink/Magenta */
+    --chart-4: 60 90% 55%; /* Bright Yellow */
+    --chart-5: 130 85% 50%; /* Lime Green */
+    --radius: 0.75rem; /* Slightly more rounded */
 
-    --sidebar-background: 240 10% 3.9%;
-    --sidebar-foreground: 0 0% 98%;
-    --sidebar-primary: 206 70% 51%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 180 100% 25%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 206 70% 51%;
+    /* Sidebar specific vars (match main theme) */
+    --sidebar-background: 225 20% 6%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 190 95% 55%;
+    --sidebar-primary-foreground: 225 20% 4%;
+    --sidebar-accent: 270 90% 65%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 225 15% 20%;
+    --sidebar-ring: 190 95% 55%;
   }
 }
 
 @layer base {
   * {
     @apply border-border;
+    /* Add subtle transition to all elements */
+    @apply transition-colors duration-150 ease-in-out;
   }
   body {
     @apply bg-background text-foreground;
@@ -97,17 +100,36 @@ body {
   }
 }
 
-/* Add subtle transition */
+/* Add subtle transition utility */
 @layer components {
   .transition-subtle {
     @apply transition-all duration-200 ease-in-out;
+  }
+
+  /* Subtle gradient background example */
+  .bg-gradient-futuristic-light {
+     @apply bg-gradient-to-br from-blue-50 via-white to-teal-50;
+  }
+
+  .dark .bg-gradient-futuristic-dark {
+     @apply bg-gradient-to-br from-indigo-950 via-slate-950 to-purple-950;
   }
 }
 
 /* Specific styles for log tags in dark mode */
 .dark .bg-green-100.text-green-800 {
-    @apply bg-green-900/30 text-green-400;
+    @apply bg-green-900/50 text-green-300; /* Adjusted dark mode green */
 }
 .dark .bg-red-100.text-red-800 {
-    @apply bg-red-900/30 text-red-400;
+    @apply bg-red-900/50 text-red-300; /* Adjusted dark mode red */
+}
+
+/* Card Enhancements */
+@layer components {
+  .card-enhanced {
+    @apply rounded-lg border bg-card text-card-foreground shadow-md transition-shadow duration-300 hover:shadow-xl;
+  }
+  .dark .card-enhanced {
+     @apply shadow-indigo-900/30 hover:shadow-indigo-800/40; /* Dark mode specific shadow */
+  }
 }

@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -12,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCap
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"; // Import Dialog components
 import { useToast } from '@/hooks/use-toast';
-import { Search, Edit, Trash2, UserX, Camera, Upload, Image as ImageIcon, Loader2, X } from 'lucide-react'; // Added Image, Camera, Upload, Loader2, X
+import { Search, Edit, Trash2, UserX, Camera, Upload, Image as ImageIcon, Loader2, X, UserPlus } from 'lucide-react'; // Added Image, Camera, Upload, Loader2, X, UserPlus
 import type { Student, ExtractedIdData, YearOfStudy, Branch } from '@/lib/types';
 import StudentForm, { StudentFormData } from '@/components/student-form'; // Import StudentForm
 import { BRANCHES, YEARS_OF_STUDY } from '@/lib/constants'; // Import branches for form
@@ -25,7 +24,8 @@ import { Label } from '@/components/ui/label'; // Import Label
 // Helper functions to manage students in localStorage (replace with API calls)
 const getStudents = (): Student[] => {
   const stored = localStorage.getItem('students');
-  return stored ? JSON.parse(stored).map((s: any) => ({ ...s, createdAt: new Date(s.createdAt) })) : [];
+  // Ensure date objects are correctly parsed
+  return stored ? JSON.parse(stored).map((s: any) => ({ ...s, createdAt: s.createdAt ? new Date(s.createdAt) : new Date() })) : [];
 };
 
 const saveStudents = (students: Student[]): void => {
@@ -48,7 +48,8 @@ const mapBranch = (branchStr?: string): Branch | undefined => {
     if (!branchStr) return undefined;
     const lowerBranchStr = branchStr.trim().toLowerCase();
     const knownBranch = BRANCHES.find(b => b.toLowerCase() === lowerBranchStr);
-    return knownBranch || branchStr.trim();
+    // Ensure the returned value is trimmed even if not a known branch
+    return knownBranch || branchStr.trim() || undefined;
 }
 
 
@@ -141,7 +142,7 @@ export default function AdminManageStudentsPage() {
     setIsLoading(true);
 
      // Check if the NEW ID conflicts with ANOTHER existing student
-     const conflictingStudent = students.find(s => s.id.toLowerCase() === formData.id.toLowerCase() && s.id !== studentToEdit.id);
+     const conflictingStudent = students.find(s => s.id.trim().toLowerCase() === formData.id.trim().toLowerCase() && s.id !== studentToEdit.id);
      if (conflictingStudent) {
          toast({
              title: 'Error Updating Student',
@@ -156,6 +157,7 @@ export default function AdminManageStudentsPage() {
      const updatedStudentData: Student = {
         ...studentToEdit, // Keep original createdAt etc.
         ...formData, // Apply form data changes
+        id: formData.id.trim(), // Ensure ID is trimmed
         // Update image URI based on whether a new image was captured/uploaded during edit
         idCardImageUri: editModeCapturedImageUri || undefined, // Use the image URI from the edit state
      };
@@ -186,7 +188,6 @@ export default function AdminManageStudentsPage() {
    const processEditImage = useCallback(async (imageDataUri: string | null) => {
      if (!imageDataUri) {
        // Keep the potentially existing editModeCapturedImageUri if stop occurred without capture
-       // setEditModeCapturedImageUri(studentToEdit?.idCardImageUri || null); // Revert to original if capture stopped/failed? Or keep new if already set? Let's keep the new one if set.
        setEditModeExtractionError("No image captured or selected.");
        setIsEditModeScanning(false);
        setIsEditModeUploading(false);
@@ -194,8 +195,6 @@ export default function AdminManageStudentsPage() {
        return;
      }
 
-     // Image URI is already set in state by scanner/upload handler via setEditModeCapturedImageUri
-     // setEditModeCapturedImageUri(imageDataUri); // No need to set it again
      setEditModeExtractionError(null);
      setIsEditModeExtracting(true); // Start AI processing indicator
      setIsEditModeScanning(false); // Ensure scanner state is off
@@ -206,14 +205,7 @@ export default function AdminManageStudentsPage() {
        console.log("Edit Mode - adminExtractBarcodeData result:", result);
 
        if (result && studentToEdit) { // Ensure studentToEdit is available
-         // Optionally pre-fill form fields based on new scan (BE CAREFUL NOT TO OVERWRITE INTENTIONAL MANUAL EDITS)
-         // You might want to ask the user if they want to update fields based on the new scan.
-         // For now, just update the image and let the user manually adjust fields if needed.
-
-          // Update the form's default values IF the corresponding field in the form is currently empty or matches the OLD student data
-          // This requires accessing the form instance, which needs to be managed carefully (e.g., using refs or context)
-          // For simplicity, we won't auto-update form fields here, just the image. The user must verify.
-
+         // For simplicity, we won't auto-update form fields here, just the image. The user must verify.
          toast({
            title: "Image Processed",
            description: `New ID image captured/uploaded. Extracted ID: ${result.studentId || 'Not found'}. Verify details.`,
@@ -229,13 +221,11 @@ export default function AdminManageStudentsPage() {
      }
    }, [studentToEdit, toast]); // Dependencies
 
-   // Scanner doesn't call this directly, relies on onManualStop
-   // const handleEditScanSuccess = (imageDataUri: string) => {
-   // };
 
    const handleEditManualStop = useCallback((imageDataUri: string | null) => {
      setIsEditModeScanning(false); // Turn off scanner view
-     // Image URI is already set by the scanner component via setEditModeCapturedImageUri
+     // Image URI should be set by the scanner component via setEditModeCapturedImageUri prop
+     setEditModeCapturedImageUri(imageDataUri); // Explicitly set here upon stopping
      processEditImage(imageDataUri); // Process the (potentially null) captured frame
    }, [processEditImage]); // Depend on processEditImage
 
@@ -271,35 +261,36 @@ export default function AdminManageStudentsPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <Card>
+      {/* Apply enhanced card style */}
+      <Card className="card-enhanced">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-primary">Manage Students</CardTitle>
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Manage Students</CardTitle>
           <CardDescription>View, search, edit, or delete student records.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4"> {/* Added pt-4 */}
           {/* Search Input and Add Button */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center">
+          <div className="flex flex-col sm:flex-row gap-4 mb-6 items-center p-4 border rounded-md bg-muted/50"> {/* Added padding and bg */}
              <div className="relative flex-grow w-full sm:w-auto">
                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                <Input
                   placeholder="Search by Name, ID, Roll No, Branch..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-full" // Add padding for the icon
+                  className="pl-10 w-full transition-subtle" // Add padding for the icon
                />
             </div>
-            <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle w-full sm:w-auto">
-                Add New Student
+            <Button onClick={() => router.push('/admin/add-student')} className="transition-subtle hover:scale-[1.02] w-full sm:w-auto">
+                <UserPlus className="mr-2 h-4 w-4"/> Add New Student
             </Button>
           </div>
 
           {/* Student Table */}
-          <div className="border rounded-md overflow-x-auto"> {/* Ensure horizontal scroll on small screens */}
+          <div className="border rounded-md overflow-x-auto shadow-inner bg-background"> {/* Ensure horizontal scroll + shadow */}
             <Table>
               <TableCaption>A list of registered students.</TableCaption>
               <TableHeader>
-                <TableRow>
-                   <TableHead>ID Card</TableHead> {/* New column for image */}
+                <TableRow className="bg-muted/50"> {/* Subtle header background */}
+                   <TableHead>ID Card</TableHead>
                   <TableHead>Student ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Branch</TableHead>
@@ -311,10 +302,10 @@ export default function AdminManageStudentsPage() {
               <TableBody>
                 {filteredStudents.length > 0 ? (
                   filteredStudents.map((student) => (
-                    <TableRow key={student.id}>
+                    <TableRow key={student.id} className="transition-colors duration-150 hover:bg-muted/60"> {/* Subtle hover */}
                        <TableCell>
                            {student.idCardImageUri ? (
-                               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewImageClick(student)} title="View ID Card">
+                               <Button variant="ghost" size="icon" className="h-8 w-8 transition-transform hover:scale-110" onClick={() => handleViewImageClick(student)} title="View ID Card">
                                    <ImageIcon className="h-4 w-4 text-primary" />
                                </Button>
                            ) : (
@@ -324,16 +315,16 @@ export default function AdminManageStudentsPage() {
                        <TableCell className="font-medium whitespace-nowrap">{student.id.toUpperCase()}</TableCell>
                        <TableCell className="whitespace-nowrap">{student.name}</TableCell>
                        <TableCell>{student.branch}</TableCell>
-                       <TableCell>{student.rollNo || '-'}</TableCell>{/* Display dash if no roll no */}
+                       <TableCell>{student.rollNo || '-'}</TableCell>
                        <TableCell>{student.yearOfStudy}</TableCell>
-                       <TableCell className="text-right space-x-1 whitespace-nowrap">{/* Reduced space */}
-                        <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Student">
+                       <TableCell className="text-right space-x-1 whitespace-nowrap">
+                        <Button onClick={() => handleEditClick(student)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800 transition-transform hover:scale-110" title="Edit Student">
                              <Edit className="h-4 w-4" />
                          </Button>
                          {/* Delete Confirmation */}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-red-700" title="Delete Student">
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-red-700 transition-transform hover:scale-110" title="Delete Student">
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -341,7 +332,7 @@ export default function AdminManageStudentsPage() {
                             <AlertDialogHeader>
                               <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the student record for "{student.name}" (ID: {student.id.toUpperCase()}). Any associated logs may also be affected (depending on future implementation).
+                                This action cannot be undone. This will permanently delete the student record for "{student.name}" (ID: {student.id.toUpperCase()}).
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
@@ -357,7 +348,7 @@ export default function AdminManageStudentsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center"> {/* Increased colSpan */}
+                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                       {searchTerm ? `No students found matching "${searchTerm}".` : "No students registered yet."}
                     </TableCell>
                   </TableRow>
@@ -368,27 +359,25 @@ export default function AdminManageStudentsPage() {
 
             {/* Edit Student Dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[600px] p-0 flex flex-col max-h-[90vh]"> {/* Use flex column, limit height */}
-                    <DialogHeader> {/* Add padding and border */}
+                <DialogContent className="sm:max-w-[600px] p-0 flex flex-col max-h-[90vh]">
+                    <DialogHeader>
                         <DialogTitle>Edit Student Information</DialogTitle>
                         <DialogDescription>
                             Make changes to the student's details. You can also update the ID card image.
                         </DialogDescription>
                     </DialogHeader>
 
-                    {/* ScrollArea wraps ONLY the main content section */}
                     <ScrollArea className="flex-grow overflow-y-auto">
-                       <div className="px-6 pt-4 pb-6"> {/* Add padding inside ScrollArea */}
+                       <div className="px-6 pt-4 pb-6">
                            {studentToEdit && (
                                 <>
                                    {/* Image Section */}
-                                   <div className="mb-6 p-2 border rounded-md bg-muted max-w-sm mx-auto">
-                                       <p className="text-sm font-medium text-center mb-2">ID Card Image:</p>
+                                   <div className="mb-6 p-3 border rounded-lg bg-muted/50 max-w-sm mx-auto"> {/* Improved styling */}
+                                       <p className="text-sm font-medium text-center mb-2 text-foreground">ID Card Image:</p>
                                        {isEditModeScanning ? (
-                                           // Show Scanner when scanning
                                            <div className="flex flex-col items-center">
                                                <BarcodeScanner
-                                                   onScanSuccess={() => {}} // Not used, relies on onManualStop
+                                                   onScanSuccess={() => {}}
                                                    onScanError={(err) => {
                                                        setEditModeExtractionError(`Scanner error: ${err.message}`);
                                                        setIsEditModeScanning(false);
@@ -396,14 +385,12 @@ export default function AdminManageStudentsPage() {
                                                    onManualStop={handleEditManualStop}
                                                    scanPrompt="Position ID card..."
                                                    disabled={isEditModeExtracting}
-                                                   setCapturedImageUri={setEditModeCapturedImageUri} // Pass the setter correctly
+                                                   setCapturedImageUri={setEditModeCapturedImageUri}
+                                                   showStopButton={true} // Show stop button in edit mode scan
                                                />
-                                                {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2" />}
-                                                {/* Button to manually stop scanning - Handled by scanner component now */}
-                                                {/* Removed manual stop button here */}
+                                                {isEditModeExtracting && <Loader2 className="h-5 w-5 animate-spin mt-2 text-primary" />}
                                            </div>
                                        ) : (
-                                            // Show Image or Placeholder
                                            <div className="flex flex-col items-center">
                                                {editModeCapturedImageUri ? (
                                                    <Image
@@ -411,19 +398,18 @@ export default function AdminManageStudentsPage() {
                                                        alt="Student ID Card"
                                                        width={250}
                                                        height={375}
-                                                       className="rounded-md object-contain mb-2"
+                                                       className="rounded-md object-contain mb-2 shadow-md" // Added shadow
                                                    />
                                                ) : (
-                                                   <div className="h-[200px] w-[150px] flex items-center justify-center bg-secondary rounded-md mb-2">
+                                                   <div className="h-[200px] w-[150px] flex items-center justify-center bg-secondary rounded-md mb-2 border border-dashed">
                                                        <span className="text-muted-foreground text-sm">No Image</span>
                                                    </div>
                                                )}
-                                               {/* Buttons to Scan/Upload */}
-                                                <div className="flex gap-2 mt-2">
-                                                     <Button variant="outline" size="sm" onClick={() => { setIsEditModeScanning(true); setEditModeExtractionError(null); }} disabled={isLoading || isEditModeUploading || isEditModeExtracting}>
+                                               <div className="flex gap-2 mt-2">
+                                                     <Button variant="outline" size="sm" onClick={() => { setIsEditModeScanning(true); setEditModeExtractionError(null); }} disabled={isLoading || isEditModeUploading || isEditModeExtracting} className="transition-subtle hover:scale-[1.03]">
                                                           <Camera className="mr-1 h-3 w-3"/> Re-Scan
                                                      </Button>
-                                                     <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}>
+                                                     <Button variant="outline" size="sm" onClick={triggerEditFileUpload} disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} className="transition-subtle hover:scale-[1.03]">
                                                           {isEditModeUploading ? <Loader2 className="mr-1 h-3 w-3 animate-spin"/> : <Upload className="mr-1 h-3 w-3"/>} Upload
                                                      </Button>
                                                      <Input
@@ -436,7 +422,7 @@ export default function AdminManageStudentsPage() {
                                                          disabled={isLoading || isEditModeScanning || isEditModeUploading || isEditModeExtracting}
                                                      />
                                                 </div>
-                                                 {isEditModeExtracting && <span className="text-xs text-muted-foreground mt-1">Processing image...</span>}
+                                                 {isEditModeExtracting && <span className="text-xs text-primary mt-1">Processing image...</span>}
                                                  {editModeExtractionError && <Alert variant="destructive" className="mt-2 text-xs p-2"><AlertDescription>{editModeExtractionError}</AlertDescription></Alert>}
                                            </div>
                                        )}
@@ -444,30 +430,28 @@ export default function AdminManageStudentsPage() {
 
                                    {/* Student Form */}
                                    <StudentForm
-                                       formId={`student-form-${studentToEdit.id}`} // Unique ID for the form
+                                       formId={`student-form-${studentToEdit.id}`}
                                        onSubmit={handleEditSubmit}
-                                       defaultValues={studentToEdit} // Pass the full student object
-                                       isLoading={isLoading || isEditModeExtracting || isEditModeUploading || isEditModeScanning} // Disable form while loading/processing/scanning
-                                       submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // This button is now external
+                                       defaultValues={studentToEdit}
+                                       isLoading={isLoading || isEditModeExtracting || isEditModeUploading || isEditModeScanning}
+                                       submitButtonText={isLoading ? 'Saving...' : 'Save Changes'} // Button text handled by DialogFooter
                                        formTitle="" // Hide inner title/desc
                                        formDescription=""
-                                       availableBranches={BRANCHES} // Or fetch dynamically if needed
+                                       availableBranches={BRANCHES}
                                    />
                                </>
                           )}
-                       </div> {/* End padding container */}
+                       </div>
                     </ScrollArea>
 
-                    <DialogFooter> {/* Add padding and border */}
+                    <DialogFooter>
                        <DialogClose asChild>
-                         <Button variant="outline" disabled={isLoading}>Cancel</Button>
+                         <Button variant="outline" disabled={isLoading} className="transition-subtle">Cancel</Button>
                        </DialogClose>
                        <Button
                           onClick={() => {
-                              // Trigger form submission using its ID
                               const formElement = document.getElementById(`student-form-${studentToEdit?.id}`);
                               if (formElement instanceof HTMLFormElement) {
-                                  // Create a temporary submit button and click it
                                   const tempSubmit = document.createElement('button');
                                   tempSubmit.type = 'submit';
                                   tempSubmit.style.display = 'none';
@@ -478,7 +462,8 @@ export default function AdminManageStudentsPage() {
                                   console.error("Could not find form element to submit.");
                               }
                           }}
-                          disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading} // Also disable save during image processing/scanning
+                          disabled={isLoading || isEditModeScanning || isEditModeExtracting || isEditModeUploading}
+                          className="transition-subtle hover:scale-[1.02]"
                         >
                           {isLoading ? 'Saving...' : 'Save Changes'}
                        </Button>
@@ -500,13 +485,13 @@ export default function AdminManageStudentsPage() {
                                 alt="Student ID Card"
                                 width={300}
                                 height={450}
-                                className="rounded-md object-contain"
+                                className="rounded-lg object-contain shadow-lg" // Added shadow
                             />
                         )}
                     </div>
                     <DialogFooter>
                         <DialogClose asChild>
-                            <Button type="button" variant="secondary">
+                            <Button type="button" variant="secondary" className="transition-subtle">
                                 Close
                             </Button>
                         </DialogClose>

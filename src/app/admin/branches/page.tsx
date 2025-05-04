@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -6,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, Trash2, Edit, Save } from 'lucide-react';
+import { PlusCircle, Trash2, Edit, Save, X } from 'lucide-react'; // Added X icon
 import { BRANCHES as DEFAULT_BRANCHES } from '@/lib/constants';
 import type { Branch } from '@/lib/types';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -106,15 +107,16 @@ export default function AdminBranchesPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 flex justify-center">
-      <Card className="w-full max-w-2xl">
+      {/* Apply enhanced card style */}
+      <Card className="w-full max-w-2xl card-enhanced">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-primary">Manage Branches</CardTitle>
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Manage Branches</CardTitle>
           <CardDescription>Add, edit, or remove library department branches.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="pt-4"> {/* Added pt-4 */}
           {/* Add New Branch Form */}
-          <form onSubmit={handleAddBranch} className="flex gap-4 mb-6 items-end">
-            <div className="flex-grow space-y-1">
+          <form onSubmit={handleAddBranch} className="flex flex-col sm:flex-row gap-4 mb-6 items-end">
+            <div className="flex-grow space-y-1 w-full sm:w-auto">
               <Label htmlFor="new-branch">New Branch Name</Label>
               <Input
                 id="new-branch"
@@ -122,21 +124,22 @@ export default function AdminBranchesPage() {
                 value={newBranchName}
                 onChange={(e) => setNewBranchName(e.target.value)}
                 disabled={isLoading}
+                className="transition-subtle" // Added transition
               />
             </div>
-            <Button type="submit" disabled={isLoading || !newBranchName.trim()} className="transition-subtle">
+            <Button type="submit" disabled={isLoading || !newBranchName.trim()} className="transition-subtle hover:scale-[1.02] w-full sm:w-auto">
               <PlusCircle className="mr-2 h-4 w-4" /> {isLoading ? 'Adding...' : 'Add Branch'}
             </Button>
           </form>
 
           {/* Branch List */}
-          <h3 className="text-lg font-semibold mb-3 text-secondary-foreground">Existing Branches</h3>
+          <h3 className="text-lg font-semibold mb-3 text-foreground">Existing Branches</h3>
           {branches.length > 0 ? (
             <ul className="space-y-3">
               {branches.map((branch, index) => (
-                <li key={index} className="flex items-center justify-between p-3 border rounded-md bg-muted/50 hover:bg-muted/80 transition-colors">
+                <li key={index} className="flex items-center justify-between p-3 border rounded-md bg-muted/50 hover:bg-muted/80 transition-colors duration-200 shadow-sm hover:shadow-md">
                   {editingBranch?.index === index ? (
-                     <div className="flex-grow flex items-center gap-2 mr-2">
+                     <div className="flex-grow flex items-center gap-2 mr-2 animate-in fade-in duration-200">
                         <Input
                             value={editingBranch.name}
                             onChange={handleEditChange}
@@ -144,22 +147,22 @@ export default function AdminBranchesPage() {
                             autoFocus
                             onKeyDown={(e) => e.key === 'Enter' && saveEdit()}
                         />
-                        <Button onClick={saveEdit} size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:text-green-700"> <Save className="h-4 w-4"/> </Button>
-                        <Button onClick={cancelEdit} size="icon" variant="ghost" className="h-8 w-8 text-gray-500 hover:text-gray-700"> <X className="h-4 w-4"/> </Button>
+                        <Button onClick={saveEdit} size="icon" variant="ghost" className="h-8 w-8 text-green-600 hover:text-green-700 transition-transform hover:scale-110"> <Save className="h-4 w-4"/> </Button>
+                        <Button onClick={cancelEdit} size="icon" variant="ghost" className="h-8 w-8 text-gray-500 hover:text-gray-700 transition-transform hover:scale-110"> <X className="h-4 w-4"/> </Button>
                      </div>
                   ) : (
                     <span className="flex-grow text-sm font-medium mr-2">{branch}</span>
                   )}
 
                   {!editingBranch && (
-                     <div className="flex gap-2">
-                         <Button onClick={() => startEditing(index)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800" title="Edit Branch">
+                     <div className="flex gap-1 animate-in fade-in duration-200"> {/* Reduced gap */}
+                         <Button onClick={() => startEditing(index)} variant="ghost" size="icon" className="h-7 w-7 text-blue-600 hover:text-blue-800 transition-transform hover:scale-110" title="Edit Branch">
                              <Edit className="h-4 w-4" />
                          </Button>
                          {/* Delete Confirmation Dialog */}
                          <AlertDialog>
                             <AlertDialogTrigger asChild>
-                               <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-red-700" title="Delete Branch">
+                               <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-red-700 transition-transform hover:scale-110" title="Delete Branch">
                                   <Trash2 className="h-4 w-4" />
                                </Button>
                             </AlertDialogTrigger>

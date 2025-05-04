@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, LogIn } from 'lucide-react'; // Added LogIn icon
 import { getAdminCredentials, initializeAdminCredentials } from '@/lib/admin-auth';
 
 export default function AdminLoginPage() {
@@ -52,14 +52,15 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-to-br from-background to-secondary">
-      <Card className="w-full max-w-md shadow-xl">
+    <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-futuristic-light dark:bg-gradient-futuristic-dark">
+      {/* Apply enhanced card style */}
+      <Card className="w-full max-w-md card-enhanced">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-primary">Admin Login</CardTitle>
+          <CardTitle className="text-2xl font-bold text-primary drop-shadow-sm">Admin Login</CardTitle>
           <CardDescription>Access the library management dashboard.</CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-4"> {/* Added pt-4 */}
             {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -76,6 +77,7 @@ export default function AdminLoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 disabled={isLoading}
+                className="transition-subtle"
               />
             </div>
             <div className="space-y-2">
@@ -88,13 +90,14 @@ export default function AdminLoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
+                className="transition-subtle"
               />
             </div>
              {/* Security Warning removed */}
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full transition-subtle" disabled={isLoading}>
-              {isLoading ? 'Logging in...' : 'Login'}
+            <Button type="submit" className="w-full transition-subtle hover:scale-[1.02]" disabled={isLoading}>
+              {isLoading ? 'Logging in...' : <><LogIn className="mr-2 h-4 w-4"/> Login</>}
             </Button>
           </CardFooter>
         </form>
@@ -102,4 +105,3 @@ export default function AdminLoginPage() {
     </div>
   );
 }
-

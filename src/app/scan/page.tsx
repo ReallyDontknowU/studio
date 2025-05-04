@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { Student, EntryLog, EntryType } from '@/lib/types';
 import { extractBarcodeData } from '@/ai/flows/extract-barcode-data';
-import { detectIdCard } from '@/ai/flows/detect-id-card-flow';
+import { detectIdCard } from '@/ai/flows/detect-id-card-flow'; // Assuming this flow exists and works
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { LogIn, LogOut, AlertCircle, UserCheck, ImageOff, Camera, Loader2, UserPlus, Send, X, RefreshCw, ScanLine, Eye } from 'lucide-react';
@@ -101,10 +101,11 @@ let errorAudio: HTMLAudioElement | null = null;
 let processingAudio: HTMLAudioElement | null = null; // Added for processing sound
 
 if (typeof window !== 'undefined') {
+    // Ensure paths are correct relative to the public directory
     entryAudio = new Audio('/sounds/entry_success.mp3');
     exitAudio = new Audio('/sounds/exit_success.mp3');
     errorAudio = new Audio('/sounds/error.mp3');
-    processingAudio = new Audio('/sounds/processing_tone.mp3'); // Updated filename
+    processingAudio = new Audio('/sounds/processing_tone.mp3'); // Use the correct filename
 
     entryAudio.preload = 'auto';
     exitAudio.preload = 'auto';
@@ -212,6 +213,7 @@ export default function ScanPage() { // Changed component name
                 branch: student.branch,
                 timestamp: now,
                 type: currentAction,
+                imageMatch: imageMatchResult, // Save comparison result with the log
             };
             console.log(`${logPrefix} Saving new log:`, newLog);
             saveEntryLog(newLog);
@@ -244,12 +246,13 @@ export default function ScanPage() { // Changed component name
         } finally {
              console.log(`${logPrefix} Finalizing processing. Success: ${processSuccessful}`);
              setLastScanResult(resultState); // Show the result card
-             setIsDetecting(false);
-             setIsExtracting(false);
+             setIsDetecting(false); // Ensure detection state is reset
+             setIsExtracting(false); // Ensure extraction state is reset
+             // setIsProcessing(false); // Do NOT reset processing here, timeout handles it
 
              // Set timeout to clear the result card and allow next scan/submit
              processingTimeoutRef.current = setTimeout(() => {
-                setIsProcessing(false); // Allow next scan/submit
+                setIsProcessing(false); // Allow next scan/submit ONLY after timeout
                 setLastScanResult(null); // Clear the result card
                 setCapturedImageUri(null); // Clear the preview image
                 console.log(`${logPrefix} Processing timeout finished, ready for next action.`);
@@ -260,7 +263,7 @@ export default function ScanPage() { // Changed component name
                  setManualStudentId(''); // Clear manual input field
              }
         }
-  }, [toast]);
+  }, [toast]); // Removed dependencies that might cause unnecessary re-renders
 
 
   // Handles image captured from scanner (triggered by autoScanMode)
@@ -284,7 +287,7 @@ export default function ScanPage() { // Changed component name
     setIsExtracting(false);
     setScanSessionError(null);
     setLastScanResult(null);
-    setCapturedImageUri(imageDataUri);
+    setCapturedImageUri(imageDataUri); // Show image being processed
 
     try {
       console.log(`${logPrefix} Calling detectIdCard...`);
@@ -294,19 +297,23 @@ export default function ScanPage() { // Changed component name
 
       if (!detectionResult || !detectionResult.isIdCard) {
         console.log(`${logPrefix} Image does not appear to be an ID card. Skipping further processing.`);
-        setIsProcessing(false); // Allow next capture attempt
         setCapturedImageUri(null); // Clear the non-ID image preview
         setDetectionCoolDown(true); // Start cooldown
-        setTimeout(() => setDetectionCoolDown(false), 2000); // Cooldown for 2 seconds
+        setTimeout(() => {
+            setDetectionCoolDown(false);
+            setIsProcessing(false); // Reset processing state AFTER cooldown
+        }, 2000); // Cooldown for 2 seconds
+        // setIsProcessing(false); // Reset processing state via timeout
         return; // Exit early
       }
 
+      // ID Card Detected, proceed to extraction
       console.log(`${logPrefix} ID card detected. Calling extractBarcodeData...`);
-      playSound('processing');
+      playSound('processing'); // Play sound when extraction starts
       setIsExtracting(true);
       const extractionResult = await extractBarcodeData({ barcodeImage: imageDataUri });
       console.log(`${logPrefix} Extraction result:`, extractionResult);
-      setIsExtracting(false);
+      setIsExtracting(false); // Extraction finished
 
       if (!extractionResult || !extractionResult.idNumber || extractionResult.idNumber.trim() === "") {
         console.log(`${logPrefix} ID card detected, but no ID number extracted.`);
@@ -314,7 +321,7 @@ export default function ScanPage() { // Changed component name
       }
 
       const extractedId = extractionResult.idNumber.trim().toLowerCase();
-      await sharedProcessLogic(extractedId, 'scan', imageDataUri);
+      await sharedProcessLogic(extractedId, 'scan', imageDataUri); // Pass to shared logic
       setLastProcessedImage(imageDataUri); // Store the successfully processed image URI
 
     } catch (error: any) { // Catch errors from detection, extraction, or shared logic call
@@ -322,7 +329,7 @@ export default function ScanPage() { // Changed component name
       const errorMessage = error.message || 'An unknown error during image processing.';
       toast({ title: 'Processing Error', description: errorMessage, variant: 'destructive' });
       playSound('error');
-      setIsDetecting(false);
+      setIsDetecting(false); // Ensure flags are reset on error
       setIsExtracting(false);
 
       setLastScanResult({
@@ -411,13 +418,32 @@ export default function ScanPage() { // Changed component name
 
 
   return (
-    <div className="container mx-auto px-4 py-8 flex flex-col items-center gap-8 min-h-screen"> {/* Added min-h-screen */}
-      <Card className="w-full max-w-lg">
+    <div className="container mx-auto px-4 py-8 flex flex-col items-center gap-8 min-h-screen">
+      {/* Apply enhanced card style */}
+      <Card className="w-full max-w-lg card-enhanced">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-primary">Record Entry/Exit</CardTitle>
-          <CardDescription>Auto-scan ID barcode or enter ID manually.</CardDescription>
+          {/* Gradient text for title */}
+          <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">
+            Record Entry/Exit
+          </CardTitle>
+          <CardDescription>Scan ID or enter ID manually below.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col items-center gap-6">
+        <CardContent className="flex flex-col items-center gap-6 pt-4"> {/* Added pt-4 */}
+
+          {/* Scanner Area */}
+          <div className="w-full">
+               <BarcodeScanner
+                 onScanSuccess={processCapturedImage}
+                 onScanError={handleScannerError}
+                 scanPrompt="Position ID card in frame..."
+                 autoScanMode={true}
+                 isProcessing={isProcessing}
+                 captureInterval={1500}
+                 isDetecting={isDetecting}
+               />
+          </div>
+
+          <div className="text-center text-muted-foreground my-1 text-sm">OR</div>
 
            {/* Manual Entry Section */}
            <form onSubmit={handleManualSubmit} className="w-full max-w-xs flex items-end gap-2">
@@ -426,45 +452,29 @@ export default function ScanPage() { // Changed component name
                <Input
                  id="manual-student-id"
                  type="text"
-                 placeholder="Enter Student ID"
+                 placeholder="Enter Student ID Manually"
                  value={manualStudentId}
                  onChange={(e) => setManualStudentId(e.target.value)}
-                 disabled={isProcessing} // Disable input while any processing is happening
-                 className="text-base"
+                 disabled={isProcessing}
+                 className="text-base transition-subtle" // Added subtle transition
                />
              </div>
-             <Button type="submit" disabled={isProcessing || !manualStudentId.trim()} className="transition-subtle">
+             <Button type="submit" disabled={isProcessing || !manualStudentId.trim()} className="transition-subtle hover:scale-[1.02]"> {/* Hover effect */}
                {isProcessing && lastScanResult?.source === 'manual' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                <span className="ml-2">Submit</span>
              </Button>
            </form>
 
-           <div className="text-center text-muted-foreground my-2">OR</div>
-
-          {/* Scanner Area - always present but controlled internally */}
-          <div className="w-full">
-               <BarcodeScanner
-                 // Pass necessary props for automatic scanning
-                 onScanSuccess={processCapturedImage} // Pass the updated handler
-                 onScanError={handleScannerError}
-                 scanPrompt="Position ID card in frame..."
-                 autoScanMode={true} // Enable auto scanning
-                 isProcessing={isProcessing} // Pass processing status to scanner to pause capture
-                 captureInterval={1500} // Capture frame every 1.5 seconds (adjust as needed)
-                 // setCapturedImageUri is NOT passed here, handled internally by the page
-                 isDetecting={isDetecting}
-               />
-          </div>
-
           {/* Last Scan/Manual Result Display */}
           {(isProcessing || lastScanResult) && (
-            <Card className={`w-full max-w-md mt-4 border-2 ${
-              !isProcessing && lastScanResult?.log.type === 'Error' ? 'border-destructive bg-destructive/10' :
-              !isProcessing && lastScanResult?.log.type === 'Entry' ? 'border-green-500 bg-green-500/10' :
-              !isProcessing && lastScanResult?.log.type === 'Exit' ? 'border-red-500 bg-red-500/10' :
-              'border-blue-500 bg-blue-500/10' // Default border while processing
-            } ${!isProcessing && lastScanResult?.imageMatch === false && lastScanResult?.log.type !== 'Error' ? '!border-yellow-500 !bg-yellow-500/10' : ''}`}>
-              <CardHeader>
+            // Apply enhanced card style to result card as well
+            <Card className={`w-full max-w-md mt-6 card-enhanced border-l-4 ${ // Added left border for emphasis
+              !isProcessing && lastScanResult?.log.type === 'Error' ? 'border-l-destructive' :
+              !isProcessing && lastScanResult?.log.type === 'Entry' ? 'border-l-green-500' : // Use a direct color for entry
+              !isProcessing && lastScanResult?.log.type === 'Exit' ? 'border-l-red-500' : // Use a direct color for exit
+              'border-l-blue-500' // Default border while processing
+            } ${!isProcessing && lastScanResult?.imageMatch === false && lastScanResult?.log.type !== 'Error' ? '!border-l-yellow-500' : ''}`}>
+              <CardHeader className="pb-3"> {/* Reduced bottom padding */}
                  <div className="flex justify-between items-start">
                     <CardTitle className="flex items-center gap-2 text-lg">
                       {isDetecting && <Loader2 className="h-5 w-5 animate-spin text-blue-600" />}
@@ -486,14 +496,14 @@ export default function ScanPage() { // Changed component name
                     </Button>
                 </div>
                 {!isProcessing && lastScanResult && (
-                  <CardDescription>
+                  <CardDescription className="pt-1"> {/* Added padding top */}
                    {lastScanResult.log.type === 'Error' && lastScanResult.log.message ? lastScanResult.log.message :
                       lastScanResult.log.timestamp ? `Recorded Time: ${format(lastScanResult.log.timestamp, 'Pp')}` : "Details unavailable"}
                   </CardDescription>
                 )}
               </CardHeader>
               {!isProcessing && lastScanResult && (
-                <CardContent className="text-sm space-y-3">
+                <CardContent className="text-sm space-y-3 pt-0"> {/* Removed top padding */}
                   {lastScanResult.source === 'scan' && capturedImageUri && (
                     <div className="flex flex-col items-center mb-3">
                       <p className="text-xs font-medium text-muted-foreground mb-1">Scanned Image:</p>
@@ -502,18 +512,18 @@ export default function ScanPage() { // Changed component name
                         alt="Scanned ID"
                         width={100}
                         height={150}
-                        className={`rounded border object-contain ${
-                          lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? 'border-yellow-500 border-2 shadow-md'
-                          : lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' ? 'border-green-500 border-2'
+                        className={`rounded border-2 object-contain shadow-md ${ // Added shadow
+                          lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' ? 'border-yellow-500 shadow-yellow-500/20' // Specific shadow
+                          : lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' ? 'border-green-500 shadow-green-500/20'
                           : 'border-muted'
                         }`}
                         data-ai-hint="scanned id card result"
                       />
                       {lastScanResult.imageMatch === false && lastScanResult.log.type !== 'Error' && (
-                        <span className="text-xs text-yellow-600 font-semibold mt-1 animate-pulse">Image Mismatch! Verify ID.</span>
+                        <span className="text-xs text-yellow-600 dark:text-yellow-400 font-semibold mt-1 animate-pulse">Image Mismatch! Verify ID.</span>
                       )}
                       {lastScanResult.imageMatch === true && lastScanResult.log.type !== 'Error' && (
-                        <span className="text-xs text-green-600 font-semibold mt-1">Image Match Confirmed</span>
+                        <span className="text-xs text-green-600 dark:text-green-400 font-semibold mt-1">Image Match Confirmed</span>
                       )}
                       {lastScanResult.imageMatch === undefined && lastScanResult.log.type !== 'Error' && (
                         <span className="text-xs text-muted-foreground mt-1">(No registered image or comparison inconclusive)</span>
@@ -521,7 +531,7 @@ export default function ScanPage() { // Changed component name
                     </div>
                   )}
 
-                  <div>
+                  <div className="space-y-1"> {/* Added space between lines */}
                     <p><strong>Student:</strong> {lastScanResult.student?.name || 'N/A'}</p>
                     <p><strong>ID:</strong> {lastScanResult.student?.id?.toUpperCase() || 'N/A'}</p>
                     {lastScanResult.log.type !== 'Error' && lastScanResult.student?.branch && (
@@ -534,7 +544,7 @@ export default function ScanPage() { // Changed component name
           )}
 
           {scanSessionError && !isProcessing && !lastScanResult && (
-            <Alert variant="destructive" className="w-full max-w-md mt-4">
+            <Alert variant="destructive" className="w-full max-w-md mt-6">
                <div className="flex justify-between items-start">
                    <div>
                       <AlertCircle className="h-4 w-4 inline-block mr-2 -translate-y-0.5" />

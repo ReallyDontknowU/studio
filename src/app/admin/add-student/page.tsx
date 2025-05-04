@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -19,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { X, RefreshCw } from 'lucide-react'; // Import X and RefreshCw icons
+import { X, RefreshCw } from 'lucide-react';
 
 // Icons
 import { Loader2, Upload, Info, Camera } from 'lucide-react';
@@ -94,7 +93,6 @@ export default function AdminAddStudentPage() {
   const processImage = useCallback(async (imageDataUri: string | null) => { // Allow null for manual stop
     if (!imageDataUri) {
         console.log("Manual stop without valid frame capture.");
-        // setCapturedImageUri(null); // Keep image if already captured previously
         setExtractedData({}); // Trigger form display for purely manual entry
         setExtractionError("No image captured. Please enter details manually or try scanning/uploading again.");
         setActiveTab('manual'); // Switch to manual tab
@@ -173,15 +171,12 @@ export default function AdminAddStudentPage() {
   }, [toast]);
 
 
-  // Scanner doesn't call this directly anymore, onManualStop is used.
-  // const handleScanSuccess = (imageDataUri: string) => {
-  // };
-
    // Handler for manual stop in scanner - THIS IS THE PRIMARY TRIGGER
    // Receives the image URI from the scanner component
    const handleManualStop = useCallback((imageDataUri: string | null) => {
     console.log("Manual Stop - received image data (or null):", imageDataUri ? imageDataUri.substring(0, 50) + "..." : null);
     // The image URI is already set in the state by the scanner's setCapturedImageUri prop
+    setCapturedImageUri(imageDataUri); // Explicitly set the image URI here upon stopping
     processImage(imageDataUri); // Process the captured frame (or null)
    }, [processImage]); // Depend on processImage
 
@@ -290,12 +285,13 @@ export default function AdminAddStudentPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 flex flex-col items-center gap-8">
-       <Card className="w-full max-w-2xl">
+       {/* Apply enhanced card style */}
+       <Card className="w-full max-w-2xl card-enhanced">
           <CardHeader className="text-center">
-             <CardTitle className="text-2xl font-bold text-primary">Add New Student</CardTitle>
+             <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Add New Student</CardTitle>
              <CardDescription>Use scan, upload, or enter details manually.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col items-center gap-6">
+          <CardContent className="flex flex-col items-center gap-6 pt-4"> {/* Added pt-4 */}
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full max-w-md">
                 <TabsList className="grid w-full grid-cols-3">
@@ -307,7 +303,7 @@ export default function AdminAddStudentPage() {
                 {/* Scan Tab Content */}
                 <TabsContent value="scan" className="flex flex-col items-center pt-6">
                     <BarcodeScanner
-                        // onScanSuccess={handleScanSuccess} // Not primary trigger anymore
+                        onScanSuccess={() => {}} // Scan success now primarily handled by manual stop
                         onScanError={(err) => {
                             console.error("Scanner Error:", err);
                             setExtractionError(`Scanner error: ${err.message}. Try uploading or manual entry.`);
@@ -317,6 +313,7 @@ export default function AdminAddStudentPage() {
                         scanPrompt="Position ID card inside the frame"
                         disabled={isExtracting || isSubmitting}
                         setCapturedImageUri={setCapturedImageUri} // Pass the state setter correctly
+                        showStopButton={true} // Explicitly show stop button in this context
                     />
                     {isExtracting && (
                         <div className="flex items-center justify-center gap-2 text-muted-foreground mt-4">
@@ -326,14 +323,14 @@ export default function AdminAddStudentPage() {
                     )}
                      {/* Display captured image preview after scan stops (before processing finishes) */}
                      {capturedImageUri && !isExtracting && activeTab === 'scan' && (
-                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
+                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs transition-opacity duration-300">
                              <p className="text-sm font-medium text-center mb-2">Captured Image:</p>
                              <Image
                                  src={capturedImageUri}
                                  alt="Captured ID Card"
                                  width={150}
                                  height={225} // Maintain vertical aspect ratio
-                                 className="rounded-md mx-auto object-contain"
+                                 className="rounded-md mx-auto object-contain shadow-md" // Added shadow
                              />
                          </div>
                      )}
@@ -351,7 +348,7 @@ export default function AdminAddStudentPage() {
                         className="hidden"
                         disabled={isExtracting || isSubmitting}
                     />
-                    <Button onClick={triggerFileUpload} variant="outline" disabled={isExtracting || isSubmitting} className="w-full max-w-xs">
+                    <Button onClick={triggerFileUpload} variant="outline" disabled={isExtracting || isSubmitting} className="w-full max-w-xs transition-subtle hover:scale-[1.02]">
                         <Upload className="mr-2 h-4 w-4" /> Choose Image File
                     </Button>
                     {isExtracting && (
@@ -362,14 +359,14 @@ export default function AdminAddStudentPage() {
                     )}
                       {/* Display uploaded image preview after upload (before processing finishes) */}
                       {capturedImageUri && !isExtracting && activeTab === 'upload' && (
-                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs">
+                         <div className="mt-4 p-2 border rounded-md bg-muted w-full max-w-xs transition-opacity duration-300">
                              <p className="text-sm font-medium text-center mb-2">Uploaded Image:</p>
                              <Image
                                  src={capturedImageUri}
                                  alt="Uploaded ID Card"
                                  width={150}
                                  height={225} // Maintain vertical aspect ratio
-                                 className="rounded-md mx-auto object-contain"
+                                 className="rounded-md mx-auto object-contain shadow-md" // Added shadow
                              />
                          </div>
                      )}
@@ -385,7 +382,7 @@ export default function AdminAddStudentPage() {
                     )}
 
                     {extractionError && !isExtracting && (
-                        <Alert variant="destructive" className="w-full mb-4">
+                        <Alert variant="destructive" className="w-full mb-4 animate-in fade-in duration-300">
                            <div className="flex justify-between items-start">
                               <div>
                                  <Info className="h-4 w-4 inline-block mr-2 -translate-y-0.5" />
@@ -402,14 +399,14 @@ export default function AdminAddStudentPage() {
 
                     {/* Display Image (from Scan/Upload) on Manual Tab */}
                     {capturedImageUri && !isExtracting && (
-                        <div className="mb-4 p-2 border rounded-md bg-muted w-full max-w-sm mx-auto">
+                        <div className="mb-6 p-2 border rounded-md bg-muted w-full max-w-sm mx-auto transition-opacity duration-500">
                            <p className="text-sm font-medium text-center mb-2">Processed Image:</p>
                            <Image
                               src={capturedImageUri}
                               alt="Scanned or Uploaded ID Card"
                               width={300}
                               height={450} // Adjust height for vertical ID card aspect ratio (approx 3:4.5)
-                              className="rounded-md mx-auto object-contain"
+                              className="rounded-md mx-auto object-contain shadow-lg" // Enhanced shadow
                               data-ai-hint="id card"
                            />
                         </div>
@@ -417,7 +414,7 @@ export default function AdminAddStudentPage() {
 
                     {/* Always render form in manual tab if not extracting. Handles manual entry and verification after scan/upload */}
                     {!isExtracting && (
-                       <div className="w-full max-w-lg mx-auto"> {/* Ensure form takes appropriate width */}
+                       <div className="w-full max-w-lg mx-auto">
                            <StudentForm
                                 // Use key to force re-render with new defaults when extractedData changes significantly
                                 key={JSON.stringify(extractedData)} // Key changes when extraction result changes
@@ -425,8 +422,8 @@ export default function AdminAddStudentPage() {
                                 defaultValues={formDefaultValues}
                                 isLoading={isSubmitting}
                                 submitButtonText={isSubmitting ? 'Adding...' : 'Add Student'}
-                                formTitle="Student Details"
-                                formDescription={capturedImageUri ? "Verify extracted information and complete any missing fields." : "Enter student details manually."} // Adjusted description based on whether an image was processed
+                                formTitle="" // Hide title/desc as they are handled by the tab/image presence
+                                formDescription={capturedImageUri ? "Verify extracted information and complete any missing fields." : "Enter student details manually."}
                            />
                        </div>
                     )}
