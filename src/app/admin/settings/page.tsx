@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -99,12 +98,8 @@ export default function AdminSettingsPage() {
     }
   };
 
-  // Note: The application currently reads API keys directly from environment variables (.env file).
-  // Implementing a feature to store API keys within the admin UI would require significant
-  // backend changes (e.g., a secure database, API endpoints) and is beyond the scope of
-  // simple frontend adjustments. This UI section is informational only.
-
   return (
+    // Removed container div as layout provides it
     <div className="flex flex-col items-center gap-8">
 
       {/* Change Credentials Card */}
@@ -195,33 +190,38 @@ export default function AdminSettingsPage() {
             <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-teal-500 to-cyan-500 drop-shadow flex items-center gap-2">
               <Info className="text-teal-500"/> API Key Setup
             </CardTitle>
-            <CardDescription>Information on the API keys required for AI features.</CardDescription>
+            <CardDescription>Information on the Google AI API key required for AI features.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
-           <Alert variant="default" className="border-l-4 border-primary"> {/* Use default variant with custom border */}
-              <Info className="h-4 w-4 text-primary" /> {/* Use primary color for icon */}
-              <AlertTitle>Google AI API Key</AlertTitle>
+           <Alert variant="default" className="border-l-4 border-primary">
+              <Info className="h-4 w-4 text-primary" />
+              <AlertTitle>Google AI API Key Setup</AlertTitle>
               <AlertDescription>
-                The application uses the Google Generative AI (Gemini) models for image analysis (ID card detection and data extraction). You need a Google AI API key for these features to work.
+                This application uses Google Generative AI (Gemini) models via Genkit for features like ID card detection and data extraction. You need a Google AI API key for these features to work.
                 <br /><br />
                 <strong>How to get a key:</strong>
                 <ol className="list-decimal list-inside mt-1 space-y-1 text-sm">
                   <li>Visit the <a href="https://ai.google.dev/" target="_blank" rel="noopener noreferrer" className="underline text-primary hover:text-primary/80">Google AI Developer site</a>.</li>
-                  <li>Follow the instructions to create an API key.</li>
-                  <li>Once you have the key, you need to set it as an environment variable named <strong>`GOOGLE_GENAI_API_KEY`</strong> in your project's <strong>`.env`</strong> file.</li>
-                  <li>Restart the application after adding the key to the `.env` file.</li>
+                  <li>Click on "Get API key in Google AI Studio" and follow the instructions to create an API key.</li>
                 </ol>
-                <br />
-                 <strong>Current Setup:</strong> API keys are currently managed via the <strong>`.env`</strong> file in the project's root directory. Storing keys directly in the admin interface is not implemented for security reasons.
+                 <br />
+                 <strong>How to configure the key:</strong>
+                <ol className="list-decimal list-inside mt-1 space-y-1 text-sm">
+                    <li><strong>Local Development:</strong> Open the `.env` file in the root of your project directory. Add the following line, replacing `YOUR_API_KEY_HERE` with your actual key:
+                        <pre className="mt-1 p-2 bg-muted rounded text-xs overflow-x-auto"><code>GOOGLE_GENAI_API_KEY=YOUR_API_KEY_HERE</code></pre>
+                    </li>
+                    <li><strong>Deployment (Vercel, Netlify, etc.):</strong> Do NOT commit your `.env` file. Instead, use your hosting provider's dashboard to set an environment variable named `GOOGLE_GENAI_API_KEY` with your API key as the value.</li>
+                    <li><strong>Restart:</strong> After adding the key (especially locally), restart your application server for the change to take effect.</li>
+                 </ol>
+                 <br />
+                 <strong className="text-destructive">Important:</strong> API keys are secrets. Keep them confidential and never commit them directly into your code or public repositories. Saving keys directly through this admin interface is not supported for security reasons.
               </AlertDescription>
            </Alert>
-           {/* Removed Groq section as the model is removed */}
         </CardContent>
         <CardFooter>
-            <p className="text-xs text-muted-foreground">Ensure your API keys are kept confidential and are not exposed in client-side code or public repositories.</p>
+            <p className="text-xs text-muted-foreground">Ensure your API key is kept confidential.</p>
         </CardFooter>
       </Card>
 
     </div>
   );
-}
