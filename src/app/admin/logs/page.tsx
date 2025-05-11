@@ -1,19 +1,19 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import type { EntryLog } from '@/lib/types';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Download, Filter, X, FileText } from 'lucide-react'; // Added FileText for PDF icon
+import { Download, Filter, X, FileText, Calendar } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BRANCHES } from '@/lib/constants'; // Assuming constants are defined
+import { BRANCHES } from '@/lib/constants';
 import { useToast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { DatePicker } from '@/components/ui/date-picker';
 
 // Mock function to get logs (replace with actual data fetching)
 const getEntryLogs = (): EntryLog[] => {
@@ -176,16 +176,19 @@ export default function AdminLogsPage() {
   const [filteredLogs, setFilteredLogs] = useState<EntryLog[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterBranch, setFilterBranch] = useState<string>('all');
-  const [filterType, setFilterType] = useState<string>('all'); // 'all', 'Entry', 'Exit'
+  const [filterType, setFilterType] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+    from: undefined,
+    to: undefined
+  });
 
   useEffect(() => {
-    // Load logs on component mount
     const loadedLogs = getEntryLogs();
     setLogs(loadedLogs);
-    setFilteredLogs(loadedLogs); // Initially show all logs
+    setFilteredLogs(loadedLogs);
   }, []);
 
-   // Filter logs whenever search term, branch, or type changes
+  // Filter logs whenever search term, branch, type, or date range changes
   useEffect(() => {
     let currentLogs = logs;
 
@@ -202,103 +205,141 @@ export default function AdminLogsPage() {
       currentLogs = currentLogs.filter(log => log.branch === filterBranch);
     }
 
-     // Filter by type
+    // Filter by type
     if (filterType !== 'all') {
       currentLogs = currentLogs.filter(log => log.type === filterType);
     }
 
+    // Filter by date range
+    if (dateRange.from || dateRange.to) {
+      currentLogs = currentLogs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        if (dateRange.from && logDate < dateRange.from) return false;
+        if (dateRange.to) {
+          const toDate = new Date(dateRange.to);
+          toDate.setHours(23, 59, 59, 999); // Include the entire end date
+          if (logDate > toDate) return false;
+        }
+        return true;
+      });
+    }
+
     setFilteredLogs(currentLogs);
-  }, [searchTerm, filterBranch, filterType, logs]);
+  }, [searchTerm, filterBranch, filterType, dateRange, logs]);
 
-   const clearFilters = () => {
-        setSearchTerm('');
-        setFilterBranch('all');
-        setFilterType('all');
-        toast({ title: "Filters Cleared", description: "Showing all log entries." });
-   };
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterBranch('all');
+    setFilterType('all');
+    setDateRange({ from: undefined, to: undefined });
+    toast({ title: "Filters Cleared", description: "Showing all log entries." });
+  };
 
-   const hasActiveFilters = searchTerm || filterBranch !== 'all' || filterType !== 'all';
-
+  const hasActiveFilters = searchTerm || filterBranch !== 'all' || filterType !== 'all' || dateRange.from || dateRange.to;
 
   return (
-    // Removed container div as layout now provides it
     <div>
-      {/* Apply enhanced card style */}
       <Card className="card-enhanced">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow">Entry/Exit Log</CardTitle>
           <CardDescription>View all recorded student library visits.</CardDescription>
         </CardHeader>
-        <CardContent className="pt-4"> {/* Added pt-4 */}
-            {/* Filtering and Export Controls */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-6 items-center flex-wrap p-4 border rounded-md bg-muted/50"> {/* Added padding and background */}
-               <Input
-                  placeholder="Search by Name or ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="max-w-xs flex-grow sm:flex-grow-0 transition-subtle" // Allow growing on small screens
-               />
-               <div className="flex gap-3 flex-wrap"> {/* Group selects */}
-                  <Select value={filterBranch} onValueChange={setFilterBranch}>
-                      <SelectTrigger className="w-full sm:w-[180px] transition-subtle">
-                          <SelectValue placeholder="Filter by Branch" />
-                      </SelectTrigger>
-                      <SelectContent>
-                          <SelectItem value="all">All Branches</SelectItem>
-                          {BRANCHES.map(branch => (
-                              <SelectItem key={branch} value={branch}>{branch}</SelectItem>
-                          ))}
-                      </SelectContent>
-                  </Select>
-                   <Select value={filterType} onValueChange={setFilterType}>
-                      <SelectTrigger className="w-full sm:w-[160px] transition-subtle"> {/* Slightly smaller */}
-                          <SelectValue placeholder="Filter by Type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                          <SelectItem value="all">All Types</SelectItem>
-                          <SelectItem value="Entry">Entry Only</SelectItem>
-                          <SelectItem value="Exit">Exit Only</SelectItem>
-                      </SelectContent>
-                  </Select>
-               </div>
-                <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" className={`transition-opacity ${hasActiveFilters ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                    <X className="h-4 w-4" />
-                </Button>
-                <div className="hidden sm:flex-grow"></div> {/* Spacer for larger screens */}
-                 {/* Export Buttons Group */}
-                 <div className="flex gap-2 flex-wrap justify-end w-full sm:w-auto"> {/* Justify end on small screens */}
-                     <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
-                         <Download className="mr-2 h-4 w-4" /> CSV
-                     </Button>
-                     <Button onClick={() => exportDataToPdf(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
-                        <FileText className="mr-2 h-4 w-4" /> PDF
-                     </Button>
-                 </div>
+        <CardContent className="pt-4">
+          {/* Filtering and Export Controls */}
+          <div className="flex flex-col sm:flex-row gap-3 mb-6 items-center flex-wrap p-4 border rounded-md bg-muted/50">
+            <Input
+              placeholder="Search by Name or ID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="max-w-xs flex-grow sm:flex-grow-0 transition-subtle"
+            />
+            
+            <Select value={filterBranch} onValueChange={setFilterBranch}>
+              <SelectTrigger className="w-full sm:w-[180px] transition-subtle">
+                <SelectValue placeholder="Filter by Branch" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Branches</SelectItem>
+                {BRANCHES.map(branch => (
+                  <SelectItem key={branch} value={branch}>{branch}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="w-full sm:w-[160px] transition-subtle">
+                <SelectValue placeholder="Filter by Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="Entry">Entry Only</SelectItem>
+                <SelectItem value="Exit">Exit Only</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Date Range Picker */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <DatePicker
+                  date={dateRange.from}
+                  onSelect={(date) => setDateRange({ ...dateRange, from: date })}
+                  placeholder="From"
+                  className="w-[130px]"
+                />
+              </div>
+              <span className="text-muted-foreground">to</span>
+              <div className="flex items-center gap-2">
+                <DatePicker
+                  date={dateRange.to}
+                  onSelect={(date) => setDateRange({ ...dateRange, to: date })}
+                  placeholder="To"
+                  className="w-[130px]"
+                />
+              </div>
             </div>
 
-          <div className="border rounded-md overflow-hidden shadow-inner bg-background"> {/* Added shadow-inner */}
+            <Button variant="ghost" size="icon" onClick={clearFilters} title="Clear Filters" 
+              className={`transition-opacity ${hasActiveFilters ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+              <X className="h-4 w-4" />
+            </Button>
+
+            <div className="hidden sm:flex-grow"></div>
+
+            {/* Export Buttons Group */}
+            <div className="flex gap-2">
+              <Button onClick={() => exportDataToCsv(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
+                <Download className="mr-2 h-4 w-4" /> CSV
+              </Button>
+              <Button onClick={() => exportDataToPdf(filteredLogs, toast)} variant="outline" size="sm" className="transition-subtle hover:scale-[1.03]">
+                <FileText className="mr-2 h-4 w-4" /> PDF
+              </Button>
+            </div>
+          </div>
+
+          <div className="border rounded-md overflow-hidden shadow-inner bg-background">
             <Table>
               <TableCaption>A list of recent student entries and exits.</TableCaption>
               <TableHeader>
-                <TableRow className="bg-muted/50"> {/* Subtle header background */}
+                <TableRow className="bg-muted/50">
                   <TableHead>Timestamp</TableHead>
                   <TableHead>Student Name</TableHead>
                   <TableHead>Student ID</TableHead>
                   <TableHead>Branch</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Image Match</TableHead> {/* Added Image Match column */}
+                  <TableHead>Image Match</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredLogs.length > 0 ? (
                   filteredLogs.map((log) => (
-                    <TableRow key={log.id} className="transition-colors duration-150 hover:bg-muted/60"> {/* Smoother hover */}
-                      <TableCell>{format(log.timestamp, 'Pp')}</TableCell> {/* Format date and time */}
+                    <TableRow key={log.id} className="transition-colors duration-150 hover:bg-muted/60">
+                      <TableCell>{format(log.timestamp, 'Pp')}</TableCell>
                       <TableCell className="font-medium">{log.studentName}</TableCell>
                       <TableCell>{log.studentId}</TableCell>
                       <TableCell>{log.branch}</TableCell>
                       <TableCell>
-                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide ${ // Improved badge styling
+                        <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide ${
                           log.type === 'Entry' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'
                         }`}>
                           {log.type}
@@ -317,7 +358,7 @@ export default function AdminLogsPage() {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground"> {/* Increased colSpan */}
+                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                       {hasActiveFilters ? 'No logs found matching your criteria.' : 'No log entries yet.'}
                     </TableCell>
                   </TableRow>
@@ -325,7 +366,6 @@ export default function AdminLogsPage() {
               </TableBody>
             </Table>
           </div>
-          {/* Optional: Add pagination controls here if expecting many logs */}
         </CardContent>
       </Card>
     </div>

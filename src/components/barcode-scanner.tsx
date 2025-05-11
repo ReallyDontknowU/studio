@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
@@ -58,6 +57,163 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const cleanupCalledRef = useRef(false);
+
+  // Add new state for camera support check
+  const [isCameraSupported, setIsCameraSupported] = useState<boolean>(true);
+
+  // Add new state for browser compatibility
+  const [browserCompatibility, setBrowserCompatibility] = useState<{
+    isSupported: boolean;
+    message: string;
+    requiresHttps: boolean;
+    browserInfo: string;
+  }>({
+    isSupported: true,
+    message: '',
+    requiresHttps: false,
+    browserInfo: ''
+  });
+
+  // Check for camera support on mount
+  useEffect(() => {
+    const checkBrowserCompatibility = async () => {
+      // Get browser information
+      const userAgent = navigator.userAgent;
+      let browserName = 'Unknown';
+      
+      if (userAgent.includes('Chrome')) browserName = 'Chrome';
+      else if (userAgent.includes('Firefox')) browserName = 'Firefox';
+      else if (userAgent.includes('Safari')) browserName = 'Safari';
+      else if (userAgent.includes('Edge')) browserName = 'Edge';
+      else if (userAgent.includes('MSIE') || userAgent.includes('Trident/')) browserName = 'Internet Explorer';
+
+      // Check if running in a browser environment
+      if (typeof window === 'undefined') {
+        return {
+          isSupported: false,
+          message: 'Camera access is only available in browser environments.',
+          requiresHttps: false,
+          browserInfo: browserName
+        };
+      }
+
+      // Check if running on HTTPS or localhost
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isHttps = window.location.protocol === 'https:';
+      
+      if (!isLocalhost && !isHttps) {
+        return {
+          isSupported: false,
+          message: 'Camera access requires HTTPS or localhost. Please use a secure connection.',
+          requiresHttps: true,
+          browserInfo: browserName
+        };
+      }
+
+      // Try to detect camera support using multiple methods
+      const checkCameraSupport = async () => {
+        try {
+          // Method 1: Check if mediaDevices exists
+          if (!navigator.mediaDevices) {
+            // Try to polyfill mediaDevices if it doesn't exist
+            (navigator as any).mediaDevices = {};
+          }
+
+          // Method 2: Check if getUserMedia exists in mediaDevices
+          if (!navigator.mediaDevices.getUserMedia) {
+            // Try to polyfill getUserMedia
+            (navigator.mediaDevices as any).getUserMedia = function(constraints: MediaStreamConstraints) {
+              const getUserMedia = (navigator as any).webkitGetUserMedia || 
+                                 (navigator as any).mozGetUserMedia || 
+                                 (navigator as any).msGetUserMedia;
+
+              if (!getUserMedia) {
+                return Promise.reject(new Error('getUserMedia is not implemented in this browser'));
+              }
+
+              return new Promise((resolve, reject) => {
+                getUserMedia.call(navigator, constraints, resolve, reject);
+              });
+            };
+          }
+
+          // Method 3: Try to enumerate devices
+          try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            console.log('Available video devices:', videoDevices);
+            return videoDevices.length > 0;
+          } catch (error) {
+            console.error('Error enumerating devices:', error);
+          }
+
+          // Method 4: Try to get user media
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            if (stream) {
+              stream.getTracks().forEach(track => track.stop());
+              return true;
+            }
+          } catch (error) {
+            console.error('Error accessing camera:', error);
+            if (error instanceof Error) {
+              if (error.name === 'NotAllowedError') {
+                return {
+                  isSupported: true,
+                  message: 'Camera access was denied. Please allow camera access in your browser settings.',
+                  requiresHttps: false,
+                  browserInfo: browserName
+                };
+              } else if (error.name === 'NotFoundError') {
+                return {
+                  isSupported: true,
+                  message: 'No camera found. Please connect a camera and try again.',
+                  requiresHttps: false,
+                  browserInfo: browserName
+                };
+              }
+            }
+          }
+
+          return false;
+        } catch (error) {
+          console.error('Error checking camera support:', error);
+          return false;
+        }
+      };
+
+      const cameraSupport = await checkCameraSupport();
+      
+      if (!cameraSupport) {
+        return {
+          isSupported: false,
+          message: `Your browser (${browserName}) does not support camera access. Please ensure:
+            1. You are using a modern browser (Chrome, Firefox, or Edge)
+            2. Camera permissions are enabled in your browser settings
+            3. No other application is using the camera
+            4. Your camera is properly connected and working`,
+          requiresHttps: false,
+          browserInfo: browserName
+        };
+      }
+
+      return {
+        isSupported: true,
+        message: '',
+        requiresHttps: false,
+        browserInfo: browserName
+      };
+    };
+
+    checkBrowserCompatibility().then(compatibility => {
+      setBrowserCompatibility(compatibility);
+      setIsCameraSupported(compatibility.isSupported);
+      
+      if (!compatibility.isSupported) {
+        setError(compatibility.message);
+      }
+    });
+  }, []);
 
   // --- Event Handlers ---
   const handleVideoError = useCallback((event: Event) => {
@@ -327,146 +483,63 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   }, [selectedDeviceId]);
 
   // --- Start Camera ---
-  const startCamera = useCallback(async (deviceId?: string | null) => {
-    const logPrefix = "[startCamera]";
-    const targetDeviceId = deviceId || selectedDeviceId;
-    console.log(`${logPrefix} Attempting to start... Target Device ID: ${targetDeviceId}`);
-    cleanupCalledRef.current = false;
-
-    if (isStarting || isActive) {
-      console.warn(`${logPrefix} Aborted - already starting or active.`);
+  const startCamera = useCallback(async () => {
+    if (!isCameraSupported) {
+      setError('Camera access is not supported by this browser. Please use a modern browser that supports camera access.');
       return;
     }
 
-    setError(null);
-    setHasCameraPermission(null);
-    setIsStarting(true);
-    setIsActive(false);
-
-     // Clear parent preview if setter exists
-     try {
-         if (typeof setCapturedImageUri === 'function') {
-             setCapturedImageUri(null);
-         }
-     } catch (e) {
-       console.error(`${logPrefix} Error calling setCapturedImageUri during start:`, e);
-     }
-
-    console.log(`${logPrefix} Performing pre-start cleanup.`);
-    cleanupCamera("startCamera preamble");
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    const video = videoRef.current;
-    if (!video) {
-        const msg = "Video element reference is not available.";
-        console.error(`${logPrefix} ${msg}`);
-        setError(msg);
-        setIsStarting(false);
+    if (isStarting || isActive || disabled) {
+      console.log("[startCamera] Ignoring start request. Conditions:", { isStarting, isActive, disabled });
         return;
     }
 
-    console.log(`${logPrefix} Attaching video event listeners.`);
-    video.removeEventListener('error', handleVideoError);
-    video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    video.removeEventListener('play', handleVideoPlay);
-    video.addEventListener('error', handleVideoError);
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    video.addEventListener('play', handleVideoPlay);
+    setIsStarting(true);
+    setError(null);
+    cleanupCalledRef.current = false;
 
     try {
-      console.log(`${logPrefix} Requesting media stream...`);
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access (getUserMedia) is not supported by this browser.');
-      }
-
-      const constraints: MediaStreamConstraints = {
-        audio: false,
-        video: targetDeviceId
-          ? { deviceId: { exact: targetDeviceId } }
-          : { facingMode: { ideal: "environment" } }
+      const constraints = {
+        video: {
+          facingMode: 'environment',
+          deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined,
+        },
       };
-      console.log(`${logPrefix} Using constraints:`, JSON.stringify(constraints));
 
-      let stream: MediaStream | null = null;
-      try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err: any) {
-          console.error(`${logPrefix} getUserMedia failed with primary constraints:`, err);
-          if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError' || err.name === 'NotReadableError') {
-              console.warn(`${logPrefix} Primary constraints failed (${err.name}). Trying default video device.`);
-              try {
-                  const fallbackConstraints = { video: true, audio: false };
-                  console.log(`${logPrefix} Using fallback constraints:`, JSON.stringify(fallbackConstraints));
-                  stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-                  console.log(`${logPrefix} Successfully fell back to default video stream.`);
-
-                  const actualDeviceId = stream?.getVideoTracks()[0]?.getSettings()?.deviceId;
-                  if (actualDeviceId && actualDeviceId !== targetDeviceId) {
-                      console.log(`${logPrefix} Fallback stream uses device ID: ${actualDeviceId}. Updating state.`);
-                      setSelectedDeviceId(actualDeviceId);
-                      localStorage.setItem('preferredCameraId', actualDeviceId);
-                      toast({ title: "Camera Switched", description: `Switched to default camera as preferred one was unavailable.`, variant: "default"});
-                  }
-              } catch (fallbackErr: any) {
-                  console.error(`${logPrefix} Fallback to default video also failed. Re-throwing original error. Fallback Error:`, fallbackErr);
-                  throw err;
-              }
-          } else {
-              throw err;
-          }
-      }
-
-      console.log(`${logPrefix} Stream obtained:`, stream.id);
-      setHasCameraPermission(true);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
-
-      const currentVideo = videoRef.current;
-      if (!currentVideo) {
-          throw new Error("Video element reference became unavailable after stream acquisition.");
+      const video = videoRef.current;
+      
+      if (!video) {
+        throw new Error('Video element not found');
       }
 
-      if (currentVideo.srcObject && currentVideo.srcObject !== stream) {
-        console.warn(`${logPrefix} Detaching existing different srcObject before setting new one.`);
-        (currentVideo.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+      video.srcObject = stream;
+      video.addEventListener('error', handleVideoError);
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('play', handleVideoPlay);
+
+      await video.play();
+      setHasCameraPermission(true);
+    } catch (error: any) {
+      console.error("[startCamera] Error:", error);
+      let errorMessage = 'Failed to access camera.';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Camera access was denied. Please allow camera access in your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No camera found. Please connect a camera and try again.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Camera is already in use by another application.';
+      } else if (error.name === 'OverconstrainedError') {
+        errorMessage = 'Camera constraints could not be satisfied. Try selecting a different camera.';
       }
 
-      currentVideo.srcObject = stream;
-      currentVideo.muted = true;
-      currentVideo.playsInline = true;
-      console.log(`${logPrefix} Set video srcObject to stream ID: ${stream.id}`);
-
-      console.log(`${logPrefix} Attempting video.play()...`);
-      await currentVideo.play();
-
-    } catch (err: any) {
-        console.error(`${logPrefix} Error during camera start or playback:`, err);
-        let message = `Could not start camera. Error: ${err.name || 'UnknownError'} - ${err.message || 'No details'}`;
-        let permissionRelated = false;
-
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            message = 'Camera permission denied. Please allow access in browser settings and refresh.';
-            permissionRelated = true;
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-            message = 'Selected camera not found or unavailable. Try another camera or ensure it is connected.';
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError' || err.name === 'AbortError') {
-             message = `Camera hardware error (${err.name}). It might be in use by another app, disconnected, or malfunctioning. Try closing other apps/tabs or selecting a different camera.`;
-        } else if (err.name === 'OverconstrainedError') {
-            message = `Camera does not support requested settings. Try another camera. Details: ${err.message}`;
-        } else if (err.name === 'SecurityError') {
-            message = 'Camera access denied due to security settings (requires HTTPS or localhost).';
-            permissionRelated = true;
-        } else if (err.name === 'TypeError' && err.message?.includes('getUserMedia')) {
-             message = 'Camera access (getUserMedia) is not supported by this browser or context (e.g., HTTP).';
-        }
-
-        setError(message);
-        setHasCameraPermission(permissionRelated ? false : null);
-        toast({ title: 'Camera Start Error', description: message, variant: 'destructive', duration: 8000 });
-        if (onScanError) onScanError(err instanceof Error ? err : new Error(message));
-        cleanupCamera("startCamera error handler");
+      setError(errorMessage);
+      if (onScanError) onScanError(error);
+      cleanupCamera("startCamera error");
     }
-     console.log(`${logPrefix} Finished start attempt. State:`, { isStarting: isStarting, isActive: isActive, error: error });
-  }, [selectedDeviceId, isStarting, isActive, toast, onScanError, cleanupCamera, handleVideoError, handleLoadedMetadata, handleVideoPlay, setCapturedImageUri]);
+  }, [isStarting, isActive, disabled, selectedDeviceId, handleVideoError, handleLoadedMetadata, handleVideoPlay, onScanError, cleanupCamera, isCameraSupported]);
 
   // Effect to enumerate devices on mount
   useEffect(() => {
@@ -521,7 +594,7 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     cleanupCamera("camera switch");
     setTimeout(() => {
-      startCamera(newDeviceId);
+      startCamera();
     }, 200);
   }, [selectedDeviceId, isSwitchingCamera, isStarting, startCamera, cleanupCamera]);
 
